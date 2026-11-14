@@ -1,5 +1,6 @@
 package com.qingxiao.lighteff
 
+import android.app.Activity
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,10 +105,13 @@ private fun LightEffApp(
 
     // 退到后台时记一次计时进度，万一进程被清理也能停在离开时的位置
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> vm.onAppStopped()
+                // 只是转屏导致的销毁重建不算离开 App，不记分心
+                Lifecycle.Event.ON_STOP ->
+                    if ((context as? Activity)?.isChangingConfigurations != true) vm.onAppStopped()
                 // 回到前台时补传上次没同步成功的改动
                 Lifecycle.Event.ON_START -> vm.retryPendingCloudUpload()
                 else -> Unit
@@ -158,6 +163,7 @@ private fun LightEffApp(
                                 habits = state.habits,
                                 sessions = state.sessions,
                                 taskRecords = state.taskRecords,
+                                distractions = state.distractions,
                                 cloud = cloud,
                                 onBackupExport = vm::encodeBackup,
                                 onBackupImport = vm::applyBackup,

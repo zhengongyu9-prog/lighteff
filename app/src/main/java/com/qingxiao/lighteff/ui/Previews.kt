@@ -144,6 +144,7 @@ private fun StatsPreview() {
             habits = previewHabits,
             sessions = previewSessions,
             taskRecords = emptyList(),
+            distractions = emptyList(),
             cloud = CloudUiState(),
             onBackupExport = { "" },
             onBackupImport = { false },

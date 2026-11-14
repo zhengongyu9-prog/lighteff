@@ -68,6 +68,8 @@ data class AppState(
     val habits: List<HabitItem> = emptyList(),
     val sessions: List<TimerSession> = emptyList(),
     val taskRecords: List<TaskRecord> = emptyList(),
+    /** 计时进行中离开 App 的时间点，用来统计分心次数 */
+    val distractions: List<Long> = emptyList(),
     /** 计时状态和主数据存在同一个文件里，一次写盘完成 */
     val timerSnapshot: StoredTimer? = null
 )

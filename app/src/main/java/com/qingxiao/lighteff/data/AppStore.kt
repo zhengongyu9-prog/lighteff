@@ -51,6 +51,9 @@ class AppStore(filesDir: File) {
         root.put("taskRecords", JSONArray().apply {
             state.taskRecords.forEach { put(it.toJson()) }
         })
+        root.put("distractions", JSONArray().apply {
+            state.distractions.forEach { put(it) }
+        })
         root.put("timer", state.timerSnapshot?.toJson() ?: JSONObject.NULL)
         return root.toString()
     }
@@ -73,6 +76,7 @@ class AppStore(filesDir: File) {
             habits = root.optJSONArray("habits").toHabits(),
             sessions = root.optJSONArray("sessions").toSessions(),
             taskRecords = records,
+            distractions = root.optJSONArray("distractions").toLongList(),
             timerSnapshot = root.optJSONObject("timer")?.toStoredTimer()
         )
     }
@@ -248,6 +252,16 @@ private fun JSONArray?.toSessions(): List<TimerSession> {
                     label = obj.optString("label")
                 )
             )
+        }
+    }
+}
+
+private fun JSONArray?.toLongList(): List<Long> {
+    if (this == null) return emptyList()
+    return buildList {
+        for (i in 0 until length()) {
+            val value = optLong(i, 0L)
+            if (value > 0L) add(value)
         }
     }
 }

@@ -129,6 +129,7 @@ fun StatsScreen(
     habits: List<HabitItem>,
     sessions: List<TimerSession>,
     taskRecords: List<TaskRecord>,
+    distractions: List<Long>,
     cloud: CloudUiState,
     onBackupExport: () -> String,
     onBackupImport: (String) -> Boolean,
@@ -187,8 +188,8 @@ fun StatsScreen(
         }
     }
     val selectedDate = LocalDate.ofEpochDay(selectedEpochDay)
-    val stats = remember(tasks, habits, sessions, taskRecords, selectedEpochDay, today) {
-        buildStats(tasks, habits, sessions, taskRecords, selectedDate, today)
+    val stats = remember(tasks, habits, sessions, taskRecords, distractions, selectedEpochDay, today) {
+        buildStats(tasks, habits, sessions, taskRecords, distractions, selectedDate, today)
     }
     val month = remember(monthKey) {
         runCatching { YearMonth.parse(monthKey) }.getOrDefault(YearMonth.now())
@@ -974,6 +975,7 @@ private fun buildStats(
     habits: List<HabitItem>,
     sessions: List<TimerSession>,
     taskRecords: List<TaskRecord>,
+    distractions: List<Long>,
     selectedDate: LocalDate,
     today: LocalDate
 ): StatsSnapshot {
@@ -995,6 +997,12 @@ private fun buildStats(
     val monthSessions = sessions.filter {
         val date = dateOf(it.completedAt)
         !date.isBefore(monthStart) && !date.isAfter(today)
+    }
+    // 分心：计时进行中离开 App 的次数，只做记录不做拦截
+    val dayDistractions = distractions.count { dateOf(it) == selectedDate }
+    val weekDistractions = distractions.count {
+        val date = dateOf(it)
+        !date.isBefore(weekStart) && !date.isAfter(today)
     }
     // 同一件待办在同一天反复勾选只算完成一次，避免完成率被刷高
     val uniqueRecords = taskRecords.distinctBy { it.taskId to dateOf(it.completedAt) }
@@ -1031,6 +1039,7 @@ private fun buildStats(
             formatDurationCn(monthSessions.sumOf { it.seconds }),
             "1 号至今 · ${monthSessions.size} 次"
         ),
+        StatItem("分心次数", "$dayDistractions 次", "$dayTag · 本周 $weekDistractions 次"),
         StatItem("连续专注", "$focusStreak 天", if (focusStreak > 0) "保持节奏" else "今天开始"),
         StatItem("完成计时", "${sessions.size} 次", "倒计时 + 正计时"),
         StatItem("待办完成", "$dayDoneTasks 件", "$dayTag · 共 ${tasks.size} 件待办"),

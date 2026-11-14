@@ -456,7 +456,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     /** 离开前台时记一次进度，万一被系统杀掉，恢复时能停在离开时的位置 */
     fun onAppStopped() {
-        if (_timer.value.running) persistTimer()
+        if (!_timer.value.running) return
+        persistTimer()
+        // 计时期间离开 App（回桌面、切到别的应用、锁屏）记一次分心，只统计不拦截
+        val now = System.currentTimeMillis()
+        mutate { current ->
+            current.copy(distractions = (current.distractions + now).takeLast(MAX_DISTRACTIONS))
+        }
     }
 
     // ---------- 备份 ----------
@@ -719,5 +725,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val KEY_PENDING_UPLOAD = "pending_upload"
         const val KEY_NEEDS_ATTENTION = "needs_attention"
+
+        /** 只留最近的分心记录，避免数据文件无限变大 */
+        const val MAX_DISTRACTIONS = 2000
     }
 }
