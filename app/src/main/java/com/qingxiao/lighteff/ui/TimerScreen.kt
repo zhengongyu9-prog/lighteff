@@ -44,6 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,6 +89,7 @@ import com.qingxiao.lighteff.data.TaskItem
 import com.qingxiao.lighteff.data.TimerMode
 import java.util.Locale
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 @Composable
 fun TimerScreen(viewModel: AppViewModel) {
@@ -355,6 +358,9 @@ fun TimerContent(
             item {
                 PresetRow(timer = timer, onSelect = onSelectMinutes)
             }
+            item {
+                DurationSlider(timer = timer, onSelect = onSelectMinutes)
+            }
         }
         item {
             ControlButtons(
@@ -487,6 +493,44 @@ private fun PresetRow(timer: TimerState, onSelect: (Int) -> Unit) {
     }
 }
 
+/** 想选得更细时用滑杆，1 ~ 600 分钟任意取值 */
+@Composable
+private fun DurationSlider(timer: TimerState, onSelect: (Int) -> Unit) {
+    val enabled = !timer.running && timer.elapsedMillis == 0L
+    var value by remember(timer.targetMinutes) {
+        mutableFloatStateOf(timer.targetMinutes.toFloat().coerceIn(1f, 600f))
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "滑动选择时长",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "${value.roundToInt()} 分钟",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outline
+            )
+        }
+        Slider(
+            value = value,
+            onValueChange = { if (enabled) value = it },
+            // 拖动过程中只改显示，松手才真正应用，避免每动一下都写盘
+            onValueChangeFinished = {
+                if (enabled) onSelect(value.roundToInt().coerceIn(1, 600))
+            },
+            valueRange = 1f..600f,
+            steps = 598,
+            enabled = enabled
+        )
+    }
+}
+
 @Composable
 private fun TimerRing(progress: Float, timeText: String, caption: String) {
     val trackColor = MaterialTheme.colorScheme.outlineVariant
@@ -521,7 +565,8 @@ private fun TimerRing(progress: Float, timeText: String, caption: String) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = timeText,
-                fontSize = 42.sp,
+                // 超过 1 小时会多出两段数字，字号调小一点避免挤出圆环
+                fontSize = if (timeText.length > 5) 30.sp else 42.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onBackground

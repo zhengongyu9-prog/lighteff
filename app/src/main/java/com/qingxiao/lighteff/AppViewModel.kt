@@ -61,6 +61,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val cloudSync = CloudSync(application.applicationContext)
     /** 记录「还有改动没传上去」「云端和本机有冲突」，进程被杀后重开也不会丢 */
     private val syncPrefs = application.getSharedPreferences("lighteff_sync", Context.MODE_PRIVATE)
+    /** 记住上次选的计时模式和时长，下次打开直接沿用 */
+    private val timerPrefs = application.getSharedPreferences("lighteff_timer", Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(store.load())
     val state: StateFlow<AppState> = _state.asStateFlow()
@@ -88,6 +90,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private var anchorWallMillis: Long = 0L
 
     init {
+        applyLastTimerChoice()
         restoreTimer()
         // 冲突状态写进本地，重开 App 后仍然要先让用户选，不会静默覆盖云端
         viewModelScope.launch {
@@ -370,6 +373,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** 把计时状态并进主数据一起写盘，避免计时和记录分两次写 */
     private fun persistTimer() {
         val snapshot = _timer.value
+        timerPrefs.edit()
+            .putString(KEY_LAST_MODE, snapshot.mode.name)
+            .putInt(KEY_LAST_MINUTES, snapshot.targetMinutes)
+            .apply()
         val stored = StoredTimer(
             mode = snapshot.mode,
             targetMinutes = snapshot.targetMinutes,
@@ -381,6 +388,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             label = snapshot.label
         )
         mutate { it.copy(timerSnapshot = stored) }
+    }
+
+    /** 上次选过的模式和时长优先，不让界面回到默认的「倒计时 25 分钟」 */
+    private fun applyLastTimerChoice() {
+        val minutes = timerPrefs.getInt(KEY_LAST_MINUTES, 0)
+        if (minutes in 1..600) {
+            _timer.value = _timer.value.copy(targetMinutes = minutes)
+        }
+        val mode = runCatching {
+            TimerMode.valueOf(timerPrefs.getString(KEY_LAST_MODE, "") ?: "")
+        }.getOrNull()
+        if (mode != null) {
+            _timer.value = _timer.value.copy(mode = mode)
+        }
     }
 
     /** 冷启动时恢复上次的计时 */
@@ -725,6 +746,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val KEY_PENDING_UPLOAD = "pending_upload"
         const val KEY_NEEDS_ATTENTION = "needs_attention"
+        const val KEY_LAST_MODE = "last_mode"
+        const val KEY_LAST_MINUTES = "last_minutes"
 
         /** 只留最近的分心记录，避免数据文件无限变大 */
         const val MAX_DISTRACTIONS = 2000

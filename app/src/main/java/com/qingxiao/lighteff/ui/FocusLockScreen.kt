@@ -90,7 +90,7 @@ fun FocusLockScreen(timer: TimerState, onEmergencyExit: () -> Unit) {
             Spacer(Modifier.height(28.dp))
             Text(
                 text = formatClock(displayMillis),
-                fontSize = 76.sp,
+                fontSize = if (formatClock(displayMillis).length > 5) 58.sp else 76.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = colors.onBackground,
