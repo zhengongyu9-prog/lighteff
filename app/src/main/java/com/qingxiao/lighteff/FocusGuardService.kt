@@ -1,0 +1,217 @@
+package com.qingxiao.lighteff
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.app.usage.UsageEvents
+import android.app.usage.UsageStatsManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.PixelFormat
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.provider.Settings
+import android.view.LayoutInflater
+import android.view.View
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
+import android.widget.TextView
+import androidx.core.app.NotificationCompat
+
+/**
+ * 计时期间每隔几百毫秒看一眼前台是哪个 App，白名单外的就用悬浮窗盖住。
+ */
+class FocusGuardService : Service() {
+
+    private lateinit var windowManager: WindowManager
+    private var overlay: View? = null
+    private var blockedPackage: String? = null
+    /** 系统级永远放行的包，白名单在每次轮询时叠加，改完立即生效 */
+    private var systemAllowed: Set<String> = emptySet()
+    private var pausedUntil = 0L
+    private val handler = Handler(Looper.getMainLooper())
+
+    private val poll = object : Runnable {
+        override fun run() {
+            runCatching { checkForeground() }
+            handler.postDelayed(this, 600L)
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        systemAllowed = buildSystemAllowedPackages()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        createChannel()
+        startForeground(NOTIFICATION_ID, buildNotification())
+        handler.removeCallbacks(poll)
+        handler.post(poll)
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(poll)
+        hideOverlay()
+        super.onDestroy()
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun checkForeground() {
+        if (!FocusGuard.isEnabled(this)) {
+            stopSelf()
+            return
+        }
+        // 刚点了「回到专注」，给切应用留点时间，别立刻把遮罩盖回来
+        if (System.currentTimeMillis() < pausedUntil) return
+        // 悬浮窗权限被撤销时直接退出，免得空转
+        if (!Settings.canDrawOverlays(this)) {
+            stopSelf()
+            return
+        }
+        val pkg = currentForegroundPackage() ?: return
+        // 白名单每次重新读，用户在计时过程中勾选/取消立刻生效
+        val allowed = systemAllowed + FocusGuard.whitelist(this)
+        if (pkg in allowed) hideOverlay() else showOverlay(pkg)
+    }
+
+    private fun currentForegroundPackage(): String? {
+        val usage = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val now = System.currentTimeMillis()
+        val events = usage.queryEvents(now - 10_000L, now)
+        val event = UsageEvents.Event()
+        var last: String? = null
+        var lastTime = 0L
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED && event.timeStamp >= lastTime) {
+                last = event.packageName
+                lastTime = event.timeStamp
+            }
+        }
+        if (last == null) {
+            // 刚亮屏还没产生事件时，用最近使用过的应用兜底
+            last = runCatching {
+                usage.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 60_000L, now)
+                    ?.maxByOrNull { it.lastTimeUsed }
+                    ?.packageName
+            }.getOrNull()
+        }
+        return last
+    }
+
+    /** 自己的 App、桌面、系统界面、输入法、拨号、系统设置永远放行，避免把人锁死 */
+    private fun buildSystemAllowedPackages(): Set<String> {
+        val result = mutableSetOf(
+            packageName,
+            "android",
+            "com.android.systemui",
+            "com.android.settings",
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.google.android.gms",
+            "com.android.phone"
+        )
+        // 桌面可能有多个（含系统 Resolver），用 queryIntentActivities 全部放行
+        runCatching {
+            val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            packageManager.queryIntentActivities(home, 0)
+                .mapNotNull { it.activityInfo?.packageName }
+                .forEach(result::add)
+        }
+        runCatching {
+            packageManager.resolveActivity(Intent(Intent.ACTION_DIAL), PackageManager.MATCH_DEFAULT_ONLY)
+                ?.activityInfo?.packageName?.let(result::add)
+        }
+        runCatching {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.enabledInputMethodList.forEach { result.add(it.packageName) }
+        }
+        return result
+    }
+
+    private fun showOverlay(pkg: String) {
+        if (overlay != null && blockedPackage == pkg) return
+        hideOverlay()
+        blockedPackage = pkg
+        val label = runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+        }.getOrDefault(pkg)
+        val view = LayoutInflater.from(this).inflate(R.layout.focus_lock_overlay, null, false)
+        view.findViewById<TextView>(R.id.overlay_app_name).text = "你打开了「$label」"
+        view.findViewById<View>(R.id.overlay_back).setOnClickListener {
+            // 切回自己时先让出 2.5 秒，避免轮询又把遮罩加回来
+            pausedUntil = System.currentTimeMillis() + 2_500L
+            hideOverlay()
+            runCatching {
+                startActivity(
+                    Intent(this, MainActivity::class.java).addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    )
+                )
+            }
+        }
+        view.findViewById<View>(R.id.overlay_disable).setOnClickListener {
+            // 只关掉本次屏蔽，计时继续
+            FocusGuard.setEnabled(this, false)
+            hideOverlay()
+            stopSelf()
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        )
+        runCatching { windowManager.addView(view, params) }
+        overlay = view
+    }
+
+    private fun hideOverlay() {
+        val view = overlay ?: return
+        overlay = null
+        blockedPackage = null
+        runCatching { windowManager.removeView(view) }
+    }
+
+    private fun createChannel() {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "专注屏蔽",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "计时期间挡住白名单外的应用"
+                    setShowBadge(false)
+                }
+            )
+        }
+    }
+
+    private fun buildNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_tab_habit)
+        .setContentTitle("专注屏蔽已开启")
+        .setContentText("白名单以外的 App 会被挡住")
+        .setOngoing(true)
+        .setSilent(true)
+        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .build()
+
+    companion object {
+        private const val CHANNEL_ID = "lighteff_focus_guard"
+        private const val NOTIFICATION_ID = 2001
+    }
+}

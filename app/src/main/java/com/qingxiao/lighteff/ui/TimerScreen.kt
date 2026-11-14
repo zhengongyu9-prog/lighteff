@@ -158,6 +158,7 @@ fun TimerScreen(viewModel: AppViewModel) {
             Toast.makeText(context, "本次专注已记录", Toast.LENGTH_SHORT).show()
         },
         notifyDenied = notifyDenied,
+        onGuardChange = viewModel::setFocusGuardEnabled,
         onOpenNotifySettings = {
             runCatching {
                 context.startActivity(
@@ -319,7 +320,8 @@ fun TimerContent(
     onReset: () -> Unit,
     onFinish: () -> Unit,
     notifyDenied: Boolean = false,
-    onOpenNotifySettings: () -> Unit = {}
+    onOpenNotifySettings: () -> Unit = {},
+    onGuardChange: (Boolean) -> Unit = {}
 ) {
     val targetMillis = timer.targetMinutes * 60_000L
     val overtimeMillis = (timer.elapsedMillis - targetMillis).coerceAtLeast(0L)
@@ -372,6 +374,9 @@ fun TimerContent(
                 onReset = onReset,
                 onFinish = onFinish
             )
+        }
+        item {
+            FocusGuardCard(onEnabledChange = onGuardChange)
         }
         if (notifyDenied) {
             item {

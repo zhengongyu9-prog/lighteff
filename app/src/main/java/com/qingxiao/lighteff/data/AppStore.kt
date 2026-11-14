@@ -24,9 +24,11 @@ class AppStore(filesDir: File) {
                 dataFile.copyTo(File(dataFile.parentFile, "lighteff_state.broken.json"), overwrite = true)
             }
         }
-        val legacyTimer = if (state?.timerSnapshot == null) loadLegacyTimer() else null
-        if (legacyTimer != null) runCatching { legacyTimerFile.delete() }
-        return (state ?: AppState()).copy(timerSnapshot = legacyTimer)
+        val base = state ?: AppState()
+        val legacyTimer = if (base.timerSnapshot == null) loadLegacyTimer() else null
+        if (legacyTimer == null) return base
+        runCatching { legacyTimerFile.delete() }
+        return base.copy(timerSnapshot = legacyTimer)
     }
 
     fun save(state: AppState) {

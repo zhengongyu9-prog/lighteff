@@ -366,10 +366,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         tickerJob = null
     }
 
+    /** 学霸模式开关，开启后计时期间挡住白名单以外的 App */
+    fun setFocusGuardEnabled(enabled: Boolean) {
+        val app = getApplication<Application>()
+        FocusGuard.setEnabled(app, enabled)
+        FocusGuard.sync(app, _timer.value.running)
+    }
+
     /** 计时期间挂一个前台服务，降低后台被系统清理的概率，并实时刷新通知里的大字时间 */
     private fun syncTimerService() {
         val app = getApplication<Application>()
         val snapshot = _timer.value
+        // 学霸模式跟着计时一起启停
+        FocusGuard.sync(app, snapshot.running)
         if (!snapshot.running) {
             runCatching { app.stopService(Intent(app, TimerService::class.java)) }
             return
@@ -464,10 +473,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val finishedAt = saved.anchorWallMillis + (target - saved.elapsedMillis)
                 val targetSeconds = (target / 1000).toInt()
                 // 如果上次恢复时已经补记过（进程在写盘前又被打断），这里不重复记录
+                // 记录时刻和推算出来的完成时刻会差几百毫秒，所以按 10 秒的窗口判断
                 val alreadyRecorded = _state.value.sessions.any {
                     it.mode == TimerMode.Countdown &&
                         it.seconds == targetSeconds &&
-                        it.completedAt == finishedAt
+                        kotlin.math.abs(it.completedAt - finishedAt) < 10_000L
                 }
                 if (!alreadyRecorded) {
                     recordSession(

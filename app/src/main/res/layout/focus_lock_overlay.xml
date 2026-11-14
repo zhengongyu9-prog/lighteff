@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F3F8F4"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:paddingStart="36dp"
+    android:paddingEnd="36dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="专注中"
+        android:textColor="#2E604F"
+        android:textSize="15sp"
+        android:letterSpacing="0.3" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:text="别走神了"
+        android:textColor="#16302A"
+        android:textSize="34sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/overlay_app_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="你打开了别的应用"
+        android:textColor="#5B6F66"
+        android:textSize="16sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="计时还在继续，回去把事情做完"
+        android:textColor="#8A9A93"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/overlay_back"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="44dp"
+        android:background="@drawable/bg_overlay_button"
+        android:gravity="center"
+        android:text="回到专注"
+        android:textColor="#FFFFFF"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/overlay_disable"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="18dp"
+        android:padding="10dp"
+        android:text="关闭本次屏蔽"
+        android:textColor="#8A9A93"
+        android:textSize="13sp" />
+
+</LinearLayout>
