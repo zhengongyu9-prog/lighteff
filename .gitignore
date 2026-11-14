@@ -1,0 +1,23 @@
+# Gradle / Android 构建产物
+.gradle/
+build/
+app/build/
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 本机配置
+local.properties
+.idea/
+*.iml
+
+# 打包产物
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# 根目录下的调试截图
+/*.png
+/*.jpg
