@@ -223,7 +223,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_timer.value.running) return
         stopTicker()
         accumulatedMillis = 0L
-        _timer.update { it.copy(targetMinutes = minutes, elapsedMillis = 0L, label = "") }
+        _timer.update {
+            it.copy(targetMinutes = minutes.coerceIn(1, MAX_MINUTES), elapsedMillis = 0L, label = "")
+        }
         persistTimer()
         syncTimerService()
     }
@@ -393,7 +395,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** 上次选过的模式和时长优先，不让界面回到默认的「倒计时 25 分钟」 */
     private fun applyLastTimerChoice() {
         val minutes = timerPrefs.getInt(KEY_LAST_MINUTES, 0)
-        if (minutes in 1..600) {
+        if (minutes in 1..MAX_MINUTES) {
             _timer.value = _timer.value.copy(targetMinutes = minutes)
         }
         val mode = runCatching {
@@ -411,14 +413,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             syncTimerService()
             return
         }
-        val target = saved.targetMinutes * 60_000L
+        val savedMinutes = saved.targetMinutes.coerceIn(1, MAX_MINUTES)
+        val target = savedMinutes * 60_000L
 
         if (saved.mode == TimerMode.Stopwatch) {
             // 正计时：进程被杀视为暂停，只恢复离开前的进度，不把不在的时间算进去
             val elapsed = if (saved.running) saved.lastElapsedMillis else saved.elapsedMillis
             _timer.value = TimerState(
                 mode = saved.mode,
-                targetMinutes = saved.targetMinutes,
+                targetMinutes = savedMinutes,
                 elapsedMillis = elapsed,
                 running = false,
                 label = saved.label
@@ -439,7 +442,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             // 倒计时在进程被杀期间已经走完，恢复成完成态并补记一条专注记录
             _timer.value = TimerState(
                 mode = saved.mode,
-                targetMinutes = saved.targetMinutes,
+                targetMinutes = savedMinutes,
                 elapsedMillis = target,
                 running = false
             )
@@ -464,7 +467,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             _timer.value = TimerState(
                 mode = saved.mode,
-                targetMinutes = saved.targetMinutes,
+                targetMinutes = savedMinutes,
                 elapsedMillis = elapsed,
                 running = false,
                 label = saved.label
@@ -748,6 +751,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_NEEDS_ATTENTION = "needs_attention"
         const val KEY_LAST_MODE = "last_mode"
         const val KEY_LAST_MINUTES = "last_minutes"
+
+        /** 倒计时最长 60 分钟 */
+        const val MAX_MINUTES = 60
+
 
         /** 只留最近的分心记录，避免数据文件无限变大 */
         const val MAX_DISTRACTIONS = 2000

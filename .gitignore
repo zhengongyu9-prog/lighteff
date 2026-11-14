@@ -21,3 +21,4 @@ local.properties
 # 根目录下的调试截图
 /*.png
 /*.jpg
+preview/

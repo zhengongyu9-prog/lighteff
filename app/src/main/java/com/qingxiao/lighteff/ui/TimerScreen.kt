@@ -15,9 +15,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,11 +32,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -72,7 +70,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -356,10 +353,7 @@ fun TimerContent(
         }
         if (timer.mode == TimerMode.Countdown) {
             item {
-                PresetRow(timer = timer, onSelect = onSelectMinutes)
-            }
-            item {
-                DurationSlider(timer = timer, onSelect = onSelectMinutes)
+                DurationPicker(timer = timer, onSelect = onSelectMinutes)
             }
         }
         item {
@@ -425,94 +419,39 @@ private fun ModeRow(mode: TimerMode, onSelect: (TimerMode) -> Unit, enabled: Boo
     }
 }
 
-private val presetMinutes = listOf(5, 15, 25, 30, 45, 60)
+/** 滑杆上的刻度数字，点一下直接跳到这个分钟数 */
+private val durationMarks = listOf(5, 15, 25, 30, 45, 60)
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private const val MAX_MINUTES = 60
+
+/** 时长选择：滑杆和刻度数字合成一个控件，1 ~ 60 分钟随便拖，点数字直接跳过去 */
 @Composable
-private fun PresetRow(timer: TimerState, onSelect: (Int) -> Unit) {
-    var showCustom by rememberSaveable { mutableStateOf(false) }
-    var customText by rememberSaveable { mutableStateOf("") }
-
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        // 已经计时（暂停或完成）时先要求重置，避免切换时长把进度静默清空
-        val canChangeDuration = !timer.running && timer.elapsedMillis == 0L
-        presetMinutes.forEach { minutes ->
-            FilterChip(
-                selected = timer.targetMinutes == minutes,
-                onClick = { onSelect(minutes) },
-                enabled = canChangeDuration,
-                label = { Text("$minutes 分") }
-            )
-        }
-        FilterChip(
-            selected = timer.targetMinutes !in presetMinutes,
-            onClick = {
-                customText = timer.targetMinutes.toString()
-                showCustom = true
-            },
-            enabled = canChangeDuration,
-            label = { Text("自定义") }
-        )
-    }
-
-    if (showCustom) {
-        AlertDialog(
-            onDismissRequest = { showCustom = false },
-            title = { Text("自定义倒计时") },
-            text = {
-                OutlinedTextField(
-                    value = customText,
-                    onValueChange = { input ->
-                        if (input.length <= 4 && input.all { it.isDigit() }) customText = input
-                    },
-                    label = { Text("分钟数") },
-                    supportingText = { Text("可输入 1 ~ 600 分钟") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val minutes = customText.toIntOrNull()
-                        if (minutes != null && minutes in 1..600) {
-                            onSelect(minutes)
-                            showCustom = false
-                        }
-                    }
-                ) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustom = false }) { Text("取消") }
-            }
-        )
-    }
-}
-
-/** 想选得更细时用滑杆，1 ~ 600 分钟任意取值 */
-@Composable
-private fun DurationSlider(timer: TimerState, onSelect: (Int) -> Unit) {
+private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
     val enabled = !timer.running && timer.elapsedMillis == 0L
-    var value by remember(timer.targetMinutes) {
-        mutableFloatStateOf(timer.targetMinutes.toFloat().coerceIn(1f, 600f))
+    val current = timer.targetMinutes.coerceIn(1, MAX_MINUTES)
+    var value by remember(current) { mutableFloatStateOf(current.toFloat()) }
+
+    fun apply(minutes: Int) {
+        if (!enabled) return
+        val clamped = minutes.coerceIn(1, MAX_MINUTES)
+        value = clamped.toFloat()
+        onSelect(clamped)
     }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "滑动选择时长",
+                text = "时长",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = "${value.roundToInt()} 分钟",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.titleSmall,
                 color = if (enabled) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.outline
             )
@@ -521,13 +460,41 @@ private fun DurationSlider(timer: TimerState, onSelect: (Int) -> Unit) {
             value = value,
             onValueChange = { if (enabled) value = it },
             // 拖动过程中只改显示，松手才真正应用，避免每动一下都写盘
-            onValueChangeFinished = {
-                if (enabled) onSelect(value.roundToInt().coerceIn(1, 600))
-            },
-            valueRange = 1f..600f,
-            steps = 598,
+            onValueChangeFinished = { apply(value.roundToInt()) },
+            valueRange = 1f..MAX_MINUTES.toFloat(),
+            steps = MAX_MINUTES - 2,
             enabled = enabled
         )
+        // 刻度数字按滑杆的比例摆放，点数字等于把滑块拖到那个位置
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+        ) {
+            val inset = 10.dp
+            val usable = maxWidth - inset * 2
+            durationMarks.forEach { minutes ->
+                val fraction = (minutes - 1f) / (MAX_MINUTES - 1)
+                val centerX = inset + usable * fraction
+                val selected = value.roundToInt() == minutes
+                Text(
+                    text = "$minutes",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = when {
+                        selected -> MaterialTheme.colorScheme.primary
+                        enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.outline
+                    },
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .offset(x = centerX - 16.dp)
+                        .width(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = enabled) { apply(minutes) }
+                        .padding(vertical = 4.dp)
+                )
+            }
+        }
     }
 }
 
