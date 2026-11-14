@@ -282,10 +282,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun startTimer() {
         val current = _timer.value
         if (current.mode == TimerMode.Countdown) {
-            val target = current.targetMinutes * 60_000L
-            if (current.elapsedMillis >= target) {
-                // 上一次倒计时已经走完，重新开始
-                _timer.update { it.copy(elapsedMillis = 0L) }
+            val currentTarget = current.targetMinutes * 60_000L
+            val freshRound = current.elapsedMillis == 0L || current.elapsedMillis >= currentTarget
+            if (freshRound) {
+                // 新一轮一律按「上次选的时长」开始，完成后也沿用，不会回到默认 25 分钟
+                val remembered = timerPrefs.getInt(KEY_LAST_MINUTES, current.targetMinutes)
+                    .takeIf { it in 1..MAX_MINUTES } ?: current.targetMinutes
+                _timer.update { it.copy(targetMinutes = remembered, elapsedMillis = 0L) }
             }
         }
         accumulatedMillis = _timer.value.elapsedMillis

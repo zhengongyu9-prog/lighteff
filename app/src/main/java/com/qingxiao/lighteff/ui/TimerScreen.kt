@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,6 +71,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -430,6 +432,8 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
     val enabled = !timer.running && timer.elapsedMillis == 0L
     val current = timer.targetMinutes.coerceIn(1, MAX_MINUTES)
     var value by remember(current) { mutableFloatStateOf(current.toFloat()) }
+    var showCustom by rememberSaveable { mutableStateOf(false) }
+    var customText by rememberSaveable { mutableStateOf("") }
 
     fun apply(minutes: Int) {
         if (!enabled) return
@@ -449,12 +453,28 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(
-                text = "${value.roundToInt()} 分钟",
-                style = MaterialTheme.typography.titleSmall,
-                color = if (enabled) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.outline
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${value.roundToInt()} 分钟",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (enabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outline
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "自定义",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (enabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = enabled) {
+                            customText = value.roundToInt().toString()
+                            showCustom = true
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
         }
         Slider(
             value = value,
@@ -495,6 +515,39 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
                 )
             }
         }
+    }
+
+    if (showCustom) {
+        AlertDialog(
+            onDismissRequest = { showCustom = false },
+            title = { Text("自定义时长") },
+            text = {
+                OutlinedTextField(
+                    value = customText,
+                    onValueChange = { input ->
+                        if (input.length <= 2 && input.all { it.isDigit() }) customText = input
+                    },
+                    label = { Text("分钟数") },
+                    supportingText = { Text("可输入 1 ~ $MAX_MINUTES 分钟") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val minutes = customText.toIntOrNull()
+                        if (minutes != null && minutes in 1..MAX_MINUTES) {
+                            apply(minutes)
+                            showCustom = false
+                        }
+                    }
+                ) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustom = false }) { Text("取消") }
+            }
+        )
     }
 }
 
