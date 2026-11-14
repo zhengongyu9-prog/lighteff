@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
@@ -31,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -64,6 +66,7 @@ fun TodoScreen(
     var priority by rememberSaveable { mutableIntStateOf(1) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
+    var pendingDelete by remember { mutableStateOf<TaskItem?>(null) }
     val focusManager = LocalFocusManager.current
 
     val pendingCount = tasks.count { !it.done }
@@ -147,13 +150,36 @@ fun TodoScreen(
                         TaskCard(
                             task = task,
                             onToggle = { onToggle(task.id) },
-                            onDelete = { onDelete(task.id) },
+                            onDelete = { pendingDelete = task },
                             modifier = Modifier.animateItem()
                         )
                     }
                 }
             }
         }
+    }
+
+    pendingDelete?.let { task ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除待办") },
+            text = { Text("确定要删除「${task.title}」吗？已经记录到统计里的完成记录会保留。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete(task.id)
+                        pendingDelete = null
+                    }
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
