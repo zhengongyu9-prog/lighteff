@@ -617,7 +617,7 @@ private fun isNotifyPermissionMissing(context: Context): Boolean =
             context, Manifest.permission.POST_NOTIFICATIONS
         ) != PackageManager.PERMISSION_GRANTED
 
-private fun formatClock(millis: Long): String {
+internal fun formatClock(millis: Long): String {
     val totalSeconds = millis / 1000
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60

@@ -78,6 +78,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _timer = MutableStateFlow(TimerState())
     val timer: StateFlow<TimerState> = _timer.asStateFlow()
 
+    /** 计时期间是否显示全屏专注页：点开始后进入，紧急退出或计时结束时关闭 */
+    private val _focusLock = MutableStateFlow(false)
+    val focusLock: StateFlow<Boolean> = _focusLock.asStateFlow()
+
     private var tickerJob: Job? = null
     private var accumulatedMillis: Long = 0L
     private var anchorRealtime: Long = 0L
@@ -225,6 +229,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_timer.value.running) pauseTimer() else startTimer()
     }
 
+    /** 紧急退出全屏专注页：只关闭全屏，计时继续在后台跑 */
+    fun dismissFocusLock() {
+        _focusLock.value = false
+    }
+
     /** 选好「这次专注做什么」之后开始计时 */
     fun startWithLabel(label: String) {
         if (_timer.value.running) return
@@ -245,6 +254,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stopTicker()
         accumulatedMillis = 0L
         _timer.update { it.copy(elapsedMillis = 0L, running = false, label = "") }
+        _focusLock.value = false
         persistTimer()
         syncTimerService()
     }
@@ -258,6 +268,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stopTicker()
         accumulatedMillis = 0L
         _timer.update { it.copy(elapsedMillis = 0L, running = false, label = "") }
+        _focusLock.value = false
         recordSession(TimerMode.Stopwatch, seconds, current.label)
         persistTimer()
         syncTimerService()
@@ -276,6 +287,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         anchorRealtime = SystemClock.elapsedRealtime()
         anchorWallMillis = System.currentTimeMillis()
         _timer.update { it.copy(running = true) }
+        _focusLock.value = true
         persistTimer()
         syncTimerService()
         launchTicker()
@@ -310,6 +322,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                                 label = ""
                             )
                         }
+                        _focusLock.value = false
                         recordSession(TimerMode.Countdown, (target / 1000).toInt(), snapshot.label)
                         persistTimer()
                         syncTimerService()
@@ -326,6 +339,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stopTicker()
         accumulatedMillis = _timer.value.elapsedMillis
         _timer.update { it.copy(running = false) }
+        _focusLock.value = false
         persistTimer()
         syncTimerService()
     }

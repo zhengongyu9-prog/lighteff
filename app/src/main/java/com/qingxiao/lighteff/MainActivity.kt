@@ -46,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qingxiao.lighteff.data.AppState
 import com.qingxiao.lighteff.ui.CountdownScreen
+import com.qingxiao.lighteff.ui.FocusLockScreen
 import com.qingxiao.lighteff.ui.HabitsScreen
 import com.qingxiao.lighteff.ui.LocalToday
 import com.qingxiao.lighteff.ui.StatsScreen
@@ -63,7 +64,15 @@ class MainActivity : ComponentActivity() {
                 val appViewModel: AppViewModel = viewModel()
                 val state by appViewModel.state.collectAsStateWithLifecycle()
                 val cloud by appViewModel.cloudState.collectAsStateWithLifecycle()
-                LightEffApp(state = state, cloud = cloud, vm = appViewModel)
+                val timer by appViewModel.timer.collectAsStateWithLifecycle()
+                val focusLock by appViewModel.focusLock.collectAsStateWithLifecycle()
+                LightEffApp(
+                    state = state,
+                    cloud = cloud,
+                    vm = appViewModel,
+                    timer = timer,
+                    focusLock = focusLock
+                )
             }
         }
     }
@@ -81,7 +90,13 @@ private val tabs = listOf(
 )
 
 @Composable
-private fun LightEffApp(state: AppState, cloud: CloudUiState, vm: AppViewModel) {
+private fun LightEffApp(
+    state: AppState,
+    cloud: CloudUiState,
+    vm: AppViewModel,
+    timer: TimerState,
+    focusLock: Boolean
+) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val stateHolder = rememberSaveableStateHolder()
     val today = rememberToday()
@@ -102,58 +117,65 @@ private fun LightEffApp(state: AppState, cloud: CloudUiState, vm: AppViewModel) 
     }
 
     CompositionLocalProvider(LocalToday provides today) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            bottomBar = {
-                LightEffBottomBar(selectedTab = selectedTab, onSelect = { selectedTab = it })
-            }
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                stateHolder.SaveableStateProvider(selectedTab) {
-                    when (selectedTab) {
-                        0 -> TodoScreen(
-                            tasks = state.tasks,
-                            onAdd = vm::addTask,
-                            onToggle = vm::toggleTask,
-                            onDelete = vm::deleteTask
-                        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
+                bottomBar = {
+                    LightEffBottomBar(selectedTab = selectedTab, onSelect = { selectedTab = it })
+                }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    stateHolder.SaveableStateProvider(selectedTab) {
+                        when (selectedTab) {
+                            0 -> TodoScreen(
+                                tasks = state.tasks,
+                                onAdd = vm::addTask,
+                                onToggle = vm::toggleTask,
+                                onDelete = vm::deleteTask
+                            )
 
-                        1 -> CountdownScreen(
-                            items = state.countdowns,
-                            onAdd = vm::addCountdown,
-                            onDelete = vm::deleteCountdown
-                        )
+                            1 -> CountdownScreen(
+                                items = state.countdowns,
+                                onAdd = vm::addCountdown,
+                                onDelete = vm::deleteCountdown
+                            )
 
-                        2 -> TimerScreen(viewModel = vm)
+                            2 -> TimerScreen(viewModel = vm)
 
-                        3 -> HabitsScreen(
-                            habits = state.habits,
-                            onAdd = vm::addHabit,
-                            onToggleToday = vm::toggleHabitToday,
-                            onDelete = vm::deleteHabit
-                        )
+                            3 -> HabitsScreen(
+                                habits = state.habits,
+                                onAdd = vm::addHabit,
+                                onToggleToday = vm::toggleHabitToday,
+                                onDelete = vm::deleteHabit
+                            )
 
-                        else -> StatsScreen(
-                            tasks = state.tasks,
-                            habits = state.habits,
-                            sessions = state.sessions,
-                            taskRecords = state.taskRecords,
-                            cloud = cloud,
-                            onBackupExport = vm::encodeBackup,
-                            onBackupImport = vm::applyBackup,
-                            onCloudLogin = vm::cloudLogin,
-                            onCloudSendReset = vm::cloudSendReset,
-                            onCloudLogout = vm::cloudLogout,
-                            onCloudUpload = vm::cloudUploadNow,
-                            onCloudRestore = vm::cloudRestore,
-                            onCloudMessageShown = vm::cloudDismissMessage
-                        )
+                            else -> StatsScreen(
+                                tasks = state.tasks,
+                                habits = state.habits,
+                                sessions = state.sessions,
+                                taskRecords = state.taskRecords,
+                                cloud = cloud,
+                                onBackupExport = vm::encodeBackup,
+                                onBackupImport = vm::applyBackup,
+                                onCloudLogin = vm::cloudLogin,
+                                onCloudSendReset = vm::cloudSendReset,
+                                onCloudLogout = vm::cloudLogout,
+                                onCloudUpload = vm::cloudUploadNow,
+                                onCloudRestore = vm::cloudRestore,
+                                onCloudMessageShown = vm::cloudDismissMessage
+                            )
+                        }
                     }
                 }
+            }
+
+            // 计时期间的全屏专注页，盖住底部标签和系统栏
+            if (focusLock && timer.running) {
+                FocusLockScreen(timer = timer, onEmergencyExit = vm::dismissFocusLock)
             }
         }
     }
