@@ -10,14 +10,20 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import com.qingxiao.lighteff.data.AppStore
 import com.qingxiao.lighteff.data.TimerMode
-import java.util.Locale
 
 /**
- * 计时期间的前台服务：常驻通知，大字显示剩余/已用时间；
+ * 计时期间的前台服务：常驻通知，大字显示剩余/已用时间。
+ *
+ * 通知里的时间交给 Chronometer 自己走（系统界面每秒重绘），不再由 App 每秒调
+ * notify() 刷新。原来的每秒刷新在息屏休眠、厂商限制通知刷新频率、主线程卡顿时
+ * 会被系统推迟或丢弃，表现就是通知时间停在某一秒不动；交给系统走时就不会了，
+ * 顺带省电。
+ *
  * stopWithTask=false，任务被划掉也保留进程，降低后台清理打断计时的概率。
  */
 class TimerService : Service() {
@@ -26,31 +32,27 @@ class TimerService : Service() {
 
     private var mode = TimerMode.Countdown
     private var targetMinutes = 25
-    private var baseElapsed = 0L
-    private var anchorWall = 0L
+    private var startElapsed = 0L
+    private var startedRealtime = 0L
     private var label = ""
-    private var ticking = false
 
-    private val ticker = object : Runnable {
-        override fun run() {
-            if (!ticking) return
-            val elapsed = currentElapsed()
-            val target = targetMinutes * 60_000L
-            val finished = mode == TimerMode.Countdown && elapsed >= target
-            notify(buildNotification(elapsed, finished))
-            if (finished) {
-                // 计时结束就停掉服务；补记记录由应用下次启动时完成
-                ticking = false
-                stopSelf()
-                return
-            }
-            handler.postDelayed(this, 1_000L)
+    /** 倒计时到点后收尾：通知定格在 00:00 并停掉服务 */
+    private val finishCheck = Runnable {
+        if (mode != TimerMode.Countdown) return@Runnable
+        if (currentElapsed() < targetMillis()) {
+            // 息屏期间被推迟执行，醒来时还没到点就按剩余时间重新挂一次
+            scheduleFinishCheck()
+            return@Runnable
         }
+        notify(buildNotification(finished = true))
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        var baseElapsed = 0L
+        var anchorWall = System.currentTimeMillis()
         if (intent == null) {
             // 服务被系统重启时从主数据恢复，没有运行中的计时就不留通知
             val saved = runCatching { AppStore(filesDir).load().timerSnapshot }.getOrNull()
@@ -72,36 +74,58 @@ class TimerService : Service() {
             label = intent.getStringExtra(EXTRA_LABEL) ?: ""
         }
 
+        // 墙钟只用来把「离开时的进度」换算成此刻的进度，之后一律用单调时钟计时，
+        // 系统时间被校准或手动改动也不会让通知时间跳变
+        val carried = baseElapsed +
+            (System.currentTimeMillis() - anchorWall).coerceAtLeast(0L)
+        startElapsed = carried
+        startedRealtime = SystemClock.elapsedRealtime()
+
         ensureChannel()
-        ticking = true
-        startForeground(NOTIFICATION_ID, buildNotification(currentElapsed(), false))
-        handler.removeCallbacks(ticker)
-        handler.postDelayed(ticker, 1_000L)
+        startForeground(NOTIFICATION_ID, buildNotification(finished = false))
+        scheduleFinishCheck()
         return START_STICKY
     }
 
     override fun onDestroy() {
-        ticking = false
-        handler.removeCallbacks(ticker)
+        handler.removeCallbacks(finishCheck)
         super.onDestroy()
     }
 
-    private fun currentElapsed(): Long =
-        baseElapsed + (System.currentTimeMillis() - anchorWall).coerceAtLeast(0L)
+    private fun targetMillis(): Long = targetMinutes * 60_000L
 
-    private fun buildNotification(elapsed: Long, finished: Boolean): Notification {
-        val timeText = when {
-            finished -> "00:00"
-            mode == TimerMode.Countdown -> formatClock((targetMinutes * 60_000L - elapsed).coerceAtLeast(0L))
-            else -> formatClock(elapsed)
+    private fun currentElapsed(): Long =
+        startElapsed + (SystemClock.elapsedRealtime() - startedRealtime).coerceAtLeast(0L)
+
+    private fun scheduleFinishCheck() {
+        handler.removeCallbacks(finishCheck)
+        if (mode != TimerMode.Countdown) return
+        val remaining = targetMillis() - currentElapsed()
+        if (remaining <= 0L) {
+            handler.post(finishCheck)
+        } else {
+            handler.postDelayed(finishCheck, remaining + 50L)
         }
+    }
+
+    private fun buildNotification(finished: Boolean): Notification {
+        val elapsed = currentElapsed()
+        val countDown = mode == TimerMode.Countdown
         val status = when {
             finished -> "本次专注已完成"
-            mode == TimerMode.Countdown -> if (label.isBlank()) "倒计时专注中" else "专注中 · $label"
+            countDown -> if (label.isBlank()) "倒计时专注中" else "专注中 · $label"
             else -> if (label.isBlank()) "正计时进行中" else "计时中 · $label"
         }
+        // Chronometer 的基准用 elapsedRealtime 时基：倒计时给「终点时刻」，
+        // 正计时给「起点时刻」，系统界面自己每秒往前走，不依赖 App 刷新
+        val base = when {
+            finished -> SystemClock.elapsedRealtime()
+            countDown -> SystemClock.elapsedRealtime() + (targetMillis() - elapsed).coerceAtLeast(0L)
+            else -> SystemClock.elapsedRealtime() - elapsed
+        }
         val views = RemoteViews(packageName, R.layout.notification_timer).apply {
-            setTextViewText(R.id.notification_time, timeText)
+            setChronometerCountDown(R.id.notification_time, countDown)
+            setChronometer(R.id.notification_time, base, null, !finished)
             setTextViewText(R.id.notification_label, status)
         }
         val contentIntent = PendingIntent.getActivity(
@@ -116,7 +140,7 @@ class TimerService : Service() {
             .setCustomContentView(views)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setContentIntent(contentIntent)
-            .setOngoing(true)
+            .setOngoing(!finished)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
@@ -136,18 +160,6 @@ class TimerService : Service() {
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "计时进行中", NotificationManager.IMPORTANCE_DEFAULT)
             )
-        }
-    }
-
-    private fun formatClock(millis: Long): String {
-        val totalSeconds = millis / 1000
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            String.format(Locale.CHINA, "%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.CHINA, "%02d:%02d", minutes, seconds)
         }
     }
 
