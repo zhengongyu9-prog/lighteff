@@ -119,12 +119,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---------- 待办 ----------
 
-    fun addTask(title: String, priority: Int) {
+    fun addTask(title: String, priority: Int, slot: Int = 0) {
         val text = title.trim()
         if (text.isEmpty()) return
         mutate { current ->
             current.copy(
-                tasks = listOf(TaskItem(id = UUID.randomUUID().toString(), title = text, priority = priority)) + current.tasks
+                tasks = listOf(
+                    TaskItem(
+                        id = UUID.randomUUID().toString(),
+                        title = text,
+                        priority = priority,
+                        slot = slot.coerceIn(0, 3)
+                    )
+                ) + current.tasks
             )
         }
     }

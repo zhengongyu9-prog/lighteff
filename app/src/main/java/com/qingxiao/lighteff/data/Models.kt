@@ -1,13 +1,14 @@
 package com.qingxiao.lighteff.data
 
-/** 单条待办事项。priority: 0 低 / 1 中 / 2 高 */
+/** 单条待办事项。priority: 0 低 / 1 中 / 2 高；slot: 0 不限 / 1 早 / 2 中 / 3 晚 */
 data class TaskItem(
     val id: String,
     val title: String,
     val priority: Int = 1,
     val done: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
-    val completedAt: Long? = null
+    val completedAt: Long? = null,
+    val slot: Int = 0
 )
 
 /** 重要日子的倒计日，使用 epochDay 存储目标日期，避免时区偏移问题 */

@@ -58,12 +58,13 @@ import com.qingxiao.lighteff.util.todayLabel
 @Composable
 fun TodoScreen(
     tasks: List<TaskItem>,
-    onAdd: (String, Int) -> Unit,
+    onAdd: (String, Int, Int) -> Unit,
     onToggle: (String) -> Unit,
     onDelete: (String) -> Unit
 ) {
     var input by rememberSaveable { mutableStateOf("") }
     var priority by rememberSaveable { mutableIntStateOf(1) }
+    var slot by rememberSaveable { mutableIntStateOf(0) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var pendingDelete by remember { mutableStateOf<TaskItem?>(null) }
@@ -94,7 +95,7 @@ fun TodoScreen(
 
     fun submit() {
         if (input.isNotBlank()) {
-            onAdd(input, priority)
+            onAdd(input, priority, slot)
             input = ""
             focusManager.clearFocus()
         }
@@ -119,8 +120,10 @@ fun TodoScreen(
             AddTaskCard(
                 input = input,
                 priority = priority,
+                slot = slot,
                 onInputChange = { input = it },
                 onPriorityChange = { priority = it },
+                onSlotChange = { slot = it },
                 onSubmit = { submit() }
             )
         }
@@ -188,8 +191,10 @@ fun TodoScreen(
 private fun AddTaskCard(
     input: String,
     priority: Int,
+    slot: Int,
     onInputChange: (String) -> Unit,
     onPriorityChange: (Int) -> Unit,
+    onSlotChange: (Int) -> Unit,
     onSubmit: () -> Unit
 ) {
     AppCard {
@@ -232,6 +237,24 @@ private fun AddTaskCard(
                 FilterChip(
                     selected = priority == index,
                     onClick = { onPriorityChange(index) },
+                    label = { Text(label) }
+                )
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "时段",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            listOf("不限", "早", "中", "晚").forEachIndexed { index, label ->
+                FilterChip(
+                    selected = slot == index,
+                    onClick = { onSlotChange(index) },
                     label = { Text(label) }
                 )
             }
@@ -313,6 +336,24 @@ private fun SortRow(selected: Int, onSelect: (Int) -> Unit) {
 }
 
 @Composable
+private fun SlotPill(slot: Int) {
+    val (label, background, foreground) = when (slot) {
+        1 -> Triple("早", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        2 -> Triple("中", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        else -> Triple("晚", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+    }
+    Surface(shape = RoundedCornerShape(6.dp), color = background) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = foreground
+        )
+    }
+}
+
+@Composable
 private fun TaskCard(
     task: TaskItem,
     onToggle: () -> Unit,
@@ -373,6 +414,7 @@ private fun TaskCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (task.slot != 0) SlotPill(task.slot)
                     PriorityPill(task.priority)
                     Text(
                         text = createdLabel(task.createdAt),

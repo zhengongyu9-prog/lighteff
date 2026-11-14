@@ -106,6 +106,7 @@ private fun TaskItem.toJson() = JSONObject().apply {
     put("done", done)
     put("createdAt", createdAt)
     put("completedAt", completedAt ?: JSONObject.NULL)
+    put("slot", slot)
 }
 
 private fun CountdownItem.toJson() = JSONObject().apply {
@@ -179,7 +180,8 @@ private fun JSONArray?.toTasks(): List<TaskItem> {
                     priority = obj.optInt("priority", 1),
                     done = obj.optBoolean("done", false),
                     createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
-                    completedAt = completedAt
+                    completedAt = completedAt,
+                    slot = obj.optInt("slot", 0).coerceIn(0, 3)
                 )
             )
         }
