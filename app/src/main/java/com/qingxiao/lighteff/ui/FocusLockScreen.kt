@@ -62,13 +62,19 @@ fun FocusLockScreen(timer: TimerState, onEmergencyExit: () -> Unit) {
     BackHandler(enabled = true) { }
 
     val targetMillis = timer.targetMinutes * 60_000L
-    val displayMillis = if (timer.mode == TimerMode.Countdown) {
-        max(targetMillis - timer.elapsedMillis, 0L)
-    } else {
-        timer.elapsedMillis
+    val runningOvertime = timer.mode == TimerMode.Countdown && timer.completed
+    val displayMillis = when {
+        runningOvertime -> (timer.elapsedMillis - targetMillis).coerceAtLeast(0L)
+        timer.mode == TimerMode.Countdown -> max(targetMillis - timer.elapsedMillis, 0L)
+        else -> timer.elapsedMillis
     }
+    val timeText = if (runningOvertime) "+${formatClock(displayMillis)}" else formatClock(displayMillis)
     val task = timer.label.trim()
-    val modeText = if (timer.mode == TimerMode.Countdown) "倒计时专注中" else "正计时进行中"
+    val modeText = when {
+        runningOvertime -> "已完成 · 超时计时中"
+        timer.mode == TimerMode.Countdown -> "倒计时专注中"
+        else -> "正计时进行中"
+    }
 
     Box(
         modifier = Modifier
@@ -89,8 +95,8 @@ fun FocusLockScreen(timer: TimerState, onEmergencyExit: () -> Unit) {
             )
             Spacer(Modifier.height(28.dp))
             Text(
-                text = formatClock(displayMillis),
-                fontSize = if (formatClock(displayMillis).length > 5) 58.sp else 76.sp,
+                text = timeText,
+                fontSize = if (timeText.length > 5) 58.sp else 76.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = colors.onBackground,

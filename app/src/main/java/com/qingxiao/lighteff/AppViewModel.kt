@@ -40,6 +40,8 @@ data class TimerState(
     val elapsedMillis: Long = 0L,
     val running: Boolean = false,
     val completionTick: Long = 0L,
+    /** 倒计时已经走完，之后按正计时继续往上记超时时间 */
+    val completed: Boolean = false,
     val label: String = ""
 )
 
@@ -214,7 +216,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_timer.value.mode == mode) return
         stopTicker()
         accumulatedMillis = 0L
-        _timer.update { it.copy(mode = mode, elapsedMillis = 0L, running = false, label = "") }
+        _timer.update {
+            it.copy(mode = mode, elapsedMillis = 0L, running = false, completed = false, label = "")
+        }
         persistTimer()
         syncTimerService()
     }
@@ -224,7 +228,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         stopTicker()
         accumulatedMillis = 0L
         _timer.update {
-            it.copy(targetMinutes = minutes.coerceIn(1, MAX_MINUTES), elapsedMillis = 0L, label = "")
+            it.copy(
+                targetMinutes = minutes.coerceIn(1, MAX_MINUTES),
+                elapsedMillis = 0L,
+                completed = false,
+                label = ""
+            )
         }
         persistTimer()
         syncTimerService()
@@ -258,7 +267,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun resetTimer() {
         stopTicker()
         accumulatedMillis = 0L
-        _timer.update { it.copy(elapsedMillis = 0L, running = false, label = "") }
+        _timer.update { it.copy(elapsedMillis = 0L, running = false, completed = false, label = "") }
         _focusLock.value = false
         persistTimer()
         syncTimerService()
@@ -283,12 +292,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val current = _timer.value
         if (current.mode == TimerMode.Countdown) {
             val currentTarget = current.targetMinutes * 60_000L
-            val freshRound = current.elapsedMillis == 0L || current.elapsedMillis >= currentTarget
+            val freshRound = current.completed ||
+                current.elapsedMillis == 0L || current.elapsedMillis >= currentTarget
             if (freshRound) {
                 // 新一轮一律按「上次选的时长」开始，完成后也沿用，不会回到默认 25 分钟
                 val remembered = timerPrefs.getInt(KEY_LAST_MINUTES, current.targetMinutes)
                     .takeIf { it in 1..MAX_MINUTES } ?: current.targetMinutes
-                _timer.update { it.copy(targetMinutes = remembered, elapsedMillis = 0L) }
+                _timer.update {
+                    it.copy(targetMinutes = remembered, elapsedMillis = 0L, completed = false)
+                }
             }
         }
         accumulatedMillis = _timer.value.elapsedMillis
@@ -318,23 +330,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             while (isActive) {
                 val elapsed = accumulatedMillis + (SystemClock.elapsedRealtime() - anchorRealtime)
                 val snapshot = _timer.value
-                if (snapshot.mode == TimerMode.Countdown) {
+                if (snapshot.mode == TimerMode.Countdown && !snapshot.completed) {
                     val target = snapshot.targetMinutes * 60_000L
                     if (elapsed >= target) {
-                        accumulatedMillis = target
+                        // 到点只记一次记录，然后继续按正计时往上走，不再停在这一秒
                         _timer.update {
                             it.copy(
-                                elapsedMillis = target,
-                                running = false,
-                                completionTick = it.completionTick + 1,
-                                label = ""
+                                elapsedMillis = elapsed,
+                                completed = true,
+                                completionTick = it.completionTick + 1
                             )
                         }
-                        _focusLock.value = false
                         recordSession(TimerMode.Countdown, (target / 1000).toInt(), snapshot.label)
                         persistTimer()
                         syncTimerService()
-                        return@launch
                     }
                 }
                 _timer.update { it.copy(elapsedMillis = elapsed) }
@@ -442,12 +451,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (elapsed >= target) {
-            // 倒计时在进程被杀期间已经走完，恢复成完成态并补记一条专注记录
+            // 倒计时在进程被杀期间已经走完：补记一条专注记录，并接着按超时正计时继续
             _timer.value = TimerState(
                 mode = saved.mode,
                 targetMinutes = savedMinutes,
-                elapsedMillis = target,
-                running = false
+                elapsedMillis = elapsed,
+                running = false,
+                completed = true,
+                label = saved.label
             )
             if (saved.running) {
                 val finishedAt = saved.anchorWallMillis + (target - saved.elapsedMillis)
@@ -466,6 +477,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         finishedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
                     )
                 }
+                resumeTicker()
             }
         } else {
             _timer.value = TimerState(
@@ -755,8 +767,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_LAST_MODE = "last_mode"
         const val KEY_LAST_MINUTES = "last_minutes"
 
-        /** 倒计时最长 60 分钟 */
-        const val MAX_MINUTES = 60
+        /** 自定义最长 600 分钟（10 小时），滑杆本身仍只到 60 */
+        const val MAX_MINUTES = 600
 
 
         /** 只留最近的分心记录，避免数据文件无限变大 */

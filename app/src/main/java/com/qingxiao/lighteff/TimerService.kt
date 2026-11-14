@@ -36,7 +36,7 @@ class TimerService : Service() {
     private var startedRealtime = 0L
     private var label = ""
 
-    /** 倒计时到点后收尾：通知定格在 00:00 并停掉服务 */
+    /** 倒计时走到 0 时把通知切成「超时正计时」，计时继续跑，不再停服务 */
     private val finishCheck = Runnable {
         if (mode != TimerMode.Countdown) return@Runnable
         if (currentElapsed() < targetMillis()) {
@@ -44,8 +44,7 @@ class TimerService : Service() {
             scheduleFinishCheck()
             return@Runnable
         }
-        notify(buildNotification(finished = true))
-        stopSelf()
+        notify(buildNotification())
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -82,7 +81,7 @@ class TimerService : Service() {
         startedRealtime = SystemClock.elapsedRealtime()
 
         ensureChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(finished = false))
+        startForeground(NOTIFICATION_ID, buildNotification())
         scheduleFinishCheck()
         return START_STICKY
     }
@@ -108,24 +107,26 @@ class TimerService : Service() {
         }
     }
 
-    private fun buildNotification(finished: Boolean): Notification {
+    private fun buildNotification(): Notification {
         val elapsed = currentElapsed()
-        val countDown = mode == TimerMode.Countdown
+        val target = targetMillis()
+        // 倒计时走完后不停，改成从 0 往上记超时时间
+        val overtime = mode == TimerMode.Countdown && elapsed >= target
         val status = when {
-            finished -> "本次专注已完成"
-            countDown -> if (label.isBlank()) "倒计时专注中" else "专注中 · $label"
+            overtime -> if (label.isBlank()) "已完成 · 超时计时中" else "已完成 · $label"
+            mode == TimerMode.Countdown -> if (label.isBlank()) "倒计时专注中" else "专注中 · $label"
             else -> if (label.isBlank()) "正计时进行中" else "计时中 · $label"
         }
         // Chronometer 的基准用 elapsedRealtime 时基：倒计时给「终点时刻」，
-        // 正计时给「起点时刻」，系统界面自己每秒往前走，不依赖 App 刷新
+        // 正计时和超时给「起点时刻」，系统界面自己每秒往前走，不依赖 App 刷新
         val base = when {
-            finished -> SystemClock.elapsedRealtime()
-            countDown -> SystemClock.elapsedRealtime() + (targetMillis() - elapsed).coerceAtLeast(0L)
+            overtime -> SystemClock.elapsedRealtime() - (elapsed - target)
+            mode == TimerMode.Countdown -> SystemClock.elapsedRealtime() + (target - elapsed)
             else -> SystemClock.elapsedRealtime() - elapsed
         }
         val views = RemoteViews(packageName, R.layout.notification_timer).apply {
-            setChronometerCountDown(R.id.notification_time, countDown)
-            setChronometer(R.id.notification_time, base, null, !finished)
+            setChronometerCountDown(R.id.notification_time, mode == TimerMode.Countdown && !overtime)
+            setChronometer(R.id.notification_time, base, null, true)
             setTextViewText(R.id.notification_label, status)
         }
         val contentIntent = PendingIntent.getActivity(
@@ -140,7 +141,7 @@ class TimerService : Service() {
             .setCustomContentView(views)
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setContentIntent(contentIntent)
-            .setOngoing(!finished)
+            .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()

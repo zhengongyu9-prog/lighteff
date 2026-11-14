@@ -183,7 +183,7 @@ fun TimerScreen(viewModel: AppViewModel) {
         AlertDialog(
             onDismissRequest = { showCompletedDialog = false },
             title = { Text("专注完成") },
-            text = { Text("本次 ${timer.targetMinutes} 分钟已记录到统计中。") },
+            text = { Text("本次 ${timer.targetMinutes} 分钟已记录到统计中。接下来继续按正计时走，超时时间也会一直计着。") },
             confirmButton = {
                 TextButton(onClick = { showCompletedDialog = false }) {
                     Text("好的")
@@ -322,10 +322,17 @@ fun TimerContent(
     onOpenNotifySettings: () -> Unit = {}
 ) {
     val targetMillis = timer.targetMinutes * 60_000L
-    val remainingMillis = max(targetMillis - timer.elapsedMillis, 0L)
-    val displayMillis = if (timer.mode == TimerMode.Countdown) remainingMillis else timer.elapsedMillis
+    val overtimeMillis = (timer.elapsedMillis - targetMillis).coerceAtLeast(0L)
+    // 倒计时走完后继续按正计时显示超时时间
+    val runningOvertime = timer.mode == TimerMode.Countdown && timer.completed
+    val displayMillis = when {
+        runningOvertime -> overtimeMillis
+        timer.mode == TimerMode.Countdown -> max(targetMillis - timer.elapsedMillis, 0L)
+        else -> timer.elapsedMillis
+    }
+    val timeText = if (runningOvertime) "+${formatClock(displayMillis)}" else formatClock(displayMillis)
     val progress = if (timer.mode == TimerMode.Countdown) {
-        if (targetMillis <= 0L) 0f
+        if (runningOvertime || targetMillis <= 0L) 0f
         else (1f - timer.elapsedMillis.toFloat() / targetMillis).coerceIn(0f, 1f)
     } else {
         ((timer.elapsedMillis % 60_000L).toFloat() / 60_000f).coerceIn(0f, 1f)
@@ -349,7 +356,7 @@ fun TimerContent(
         item {
             TimerRing(
                 progress = progress,
-                timeText = formatClock(displayMillis),
+                timeText = timeText,
                 caption = timerCaption(timer)
             )
         }
@@ -426,19 +433,24 @@ private val durationMarks = listOf(5, 15, 25, 30, 45, 60)
 
 private const val MAX_MINUTES = 60
 
+/** 拖动滑杆最多 60 分钟，自定义可以输入到 600 分钟 */
+private const val MAX_CUSTOM_MINUTES = 600
+
 /** 时长选择：滑杆和刻度数字合成一个控件，1 ~ 60 分钟随便拖，点数字直接跳过去 */
 @Composable
 private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
     val enabled = !timer.running && timer.elapsedMillis == 0L
     val current = timer.targetMinutes.coerceIn(1, MAX_MINUTES)
     var value by remember(current) { mutableFloatStateOf(current.toFloat()) }
+    var dragging by remember(current) { mutableStateOf(false) }
     var showCustom by rememberSaveable { mutableStateOf(false) }
     var customText by rememberSaveable { mutableStateOf("") }
 
     fun apply(minutes: Int) {
         if (!enabled) return
-        val clamped = minutes.coerceIn(1, MAX_MINUTES)
-        value = clamped.toFloat()
+        val clamped = minutes.coerceIn(1, MAX_CUSTOM_MINUTES)
+        // 滑杆只显示到 60，自定义超过 60 时滑块停在最右边
+        value = clamped.coerceAtMost(MAX_MINUTES).toFloat()
         onSelect(clamped)
     }
 
@@ -455,7 +467,7 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "${value.roundToInt()} 分钟",
+                    text = "${if (dragging) value.roundToInt() else timer.targetMinutes} 分钟",
                     style = MaterialTheme.typography.titleSmall,
                     color = if (enabled) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.outline
@@ -469,7 +481,7 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(enabled = enabled) {
-                            customText = value.roundToInt().toString()
+                            customText = timer.targetMinutes.toString()
                             showCustom = true
                         }
                         .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -478,9 +490,17 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
         }
         Slider(
             value = value,
-            onValueChange = { if (enabled) value = it },
+            onValueChange = {
+                if (enabled) {
+                    dragging = true
+                    value = it
+                }
+            },
             // 拖动过程中只改显示，松手才真正应用，避免每动一下都写盘
-            onValueChangeFinished = { apply(value.roundToInt()) },
+            onValueChangeFinished = {
+                dragging = false
+                apply(value.roundToInt())
+            },
             valueRange = 1f..MAX_MINUTES.toFloat(),
             steps = MAX_MINUTES - 2,
             enabled = enabled
@@ -525,10 +545,10 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
                 OutlinedTextField(
                     value = customText,
                     onValueChange = { input ->
-                        if (input.length <= 2 && input.all { it.isDigit() }) customText = input
+                        if (input.length <= 3 && input.all { it.isDigit() }) customText = input
                     },
                     label = { Text("分钟数") },
-                    supportingText = { Text("可输入 1 ~ $MAX_MINUTES 分钟") },
+                    supportingText = { Text("可输入 1 ~ $MAX_CUSTOM_MINUTES 分钟") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
@@ -537,7 +557,7 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
                 TextButton(
                     onClick = {
                         val minutes = customText.toIntOrNull()
-                        if (minutes != null && minutes in 1..MAX_MINUTES) {
+                        if (minutes != null && minutes in 1..MAX_CUSTOM_MINUTES) {
                             apply(minutes)
                             showCustom = false
                         }
@@ -664,6 +684,7 @@ private fun timerCaption(timer: TimerState): String {
     val tag = if (raw.length > 12) raw.take(12) + "…" else raw
     fun withTag(text: String) = if (tag.isEmpty()) text else "$tag · $text"
     return when {
+        timer.completed -> withTag("已完成 · 超时计时")
         timer.mode == TimerMode.Countdown && timer.running -> withTag("专注中…")
         timer.mode == TimerMode.Countdown &&
             timer.elapsedMillis >= timer.targetMinutes * 60_000L -> withTag("已完成")
