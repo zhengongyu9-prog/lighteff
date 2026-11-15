@@ -56,6 +56,7 @@ import com.qingxiao.lighteff.R
 import com.qingxiao.lighteff.data.TaskItem
 import com.qingxiao.lighteff.util.createdLabel
 import com.qingxiao.lighteff.util.todayLabel
+import java.time.ZoneId
 
 @Composable
 fun TodoScreen(
@@ -72,12 +73,23 @@ fun TodoScreen(
     var pendingDelete by remember { mutableStateOf<TaskItem?>(null) }
     val focusManager = LocalFocusManager.current
 
-    val pendingCount = tasks.count { !it.done }
-    val filtered = remember(tasks, filter) {
+    // 昨天及以前完成的事第二天不再显示；没完成的继续留着，当天完成的照常显示
+    val today = LocalToday.current
+    val todayStart = remember(today) {
+        today.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+    }
+    val visibleTasks = remember(tasks, todayStart) {
+        tasks.filter { task ->
+            !task.done || (task.completedAt ?: Long.MAX_VALUE) >= todayStart
+        }
+    }
+
+    val pendingCount = visibleTasks.count { !it.done }
+    val filtered = remember(visibleTasks, filter) {
         when (filter) {
-            1 -> tasks.filter { !it.done }
-            2 -> tasks.filter { it.done }
-            else -> tasks
+            1 -> visibleTasks.filter { !it.done }
+            2 -> visibleTasks.filter { it.done }
+            else -> visibleTasks
         }
     }
 
@@ -136,7 +148,7 @@ fun TodoScreen(
             )
         }
         item {
-            FilterRow(selected = filter, tasks = tasks, onSelect = { filter = it })
+            FilterRow(selected = filter, tasks = visibleTasks, onSelect = { filter = it })
         }
         item {
             SortRow(selected = sort, onSelect = { sort = it })
@@ -145,8 +157,8 @@ fun TodoScreen(
             item {
                 EmptyState(
                     iconRes = R.drawable.ic_tab_todo,
-                    title = if (tasks.isEmpty()) "还没有待办" else "这里空空如也",
-                    hint = if (tasks.isEmpty()) "在上方输入框写下第一件事吧" else "换一个筛选条件看看"
+                    title = if (visibleTasks.isEmpty()) "还没有待办" else "这里空空如也",
+                    hint = if (visibleTasks.isEmpty()) "在上方输入框写下第一件事吧" else "换一个筛选条件看看"
                 )
             }
         } else {
