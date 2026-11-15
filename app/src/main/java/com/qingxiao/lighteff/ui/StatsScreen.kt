@@ -142,6 +142,10 @@ fun StatsScreen(
 ) {
     var showCloudDialog by rememberSaveable { mutableStateOf(false) }
     var cloudRegisterMode by rememberSaveable { mutableStateOf(false) }
+    /** 覆盖类操作先确认：upload = 用本机覆盖云端，restore = 用云端覆盖本机 */
+    var pendingCloudConfirm by remember { mutableStateOf<String?>(null) }
+    /** 选好备份文件后先不导入，等用户确认 */
+    var pendingImportRaw by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(cloud.loggedIn) {
         if (cloud.loggedIn) showCloudDialog = false
     }
@@ -172,8 +176,11 @@ fun StatsScreen(
                     context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
                 }.getOrNull()
             }
-            val ok = raw != null && onBackupImport(raw)
-            Toast.makeText(context, if (ok) "备份已恢复" else "备份文件无法识别", Toast.LENGTH_SHORT).show()
+            if (raw == null) {
+                Toast.makeText(context, "备份文件无法识别", Toast.LENGTH_SHORT).show()
+            } else {
+                pendingImportRaw = raw
+            }
         }
     }
     val today = LocalToday.current
@@ -284,15 +291,19 @@ fun StatsScreen(
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
-                            onClick = onCloudUpload,
+                            onClick = {
+                                // 有冲突时这个按钮意味着覆盖云端，先确认再传
+                                if (cloud.needsAttention) pendingCloudConfirm = "upload"
+                                else onCloudUpload()
+                            },
                             modifier = Modifier.weight(1f),
                             enabled = !cloud.busy,
                             shape = RoundedCornerShape(14.dp)
                         ) {
-                            Text("立即同步")
+                            Text(if (cloud.needsAttention) "用本机覆盖" else "立即同步")
                         }
                         OutlinedButton(
-                            onClick = onCloudRestore,
+                            onClick = { pendingCloudConfirm = "restore" },
                             modifier = Modifier.weight(1f),
                             enabled = !cloud.busy,
                             shape = RoundedCornerShape(14.dp)
@@ -368,6 +379,58 @@ fun StatsScreen(
                 onCloudLogin(email, password, cloudRegisterMode)
             },
             onSendReset = { email -> onCloudSendReset(email) }
+        )
+    }
+
+    pendingCloudConfirm?.let { action ->
+        val overwriteCloud = action == "upload"
+        AlertDialog(
+            onDismissRequest = { pendingCloudConfirm = null },
+            title = { Text(if (overwriteCloud) "用本机数据覆盖云端？" else "用云端数据覆盖本机？") },
+            text = {
+                Text(
+                    if (overwriteCloud) {
+                        "云端现有的备份会被本机数据替换，另一台设备上的旧数据就找不回来了。"
+                    } else {
+                        "本机现有的待办、打卡、专注记录会被云端备份替换。"
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingCloudConfirm = null
+                        if (overwriteCloud) onCloudUpload() else onCloudRestore()
+                    }
+                ) { Text(if (overwriteCloud) "覆盖" else "恢复") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCloudConfirm = null }) { Text("取消") }
+            }
+        )
+    }
+
+    pendingImportRaw?.let { raw ->
+        AlertDialog(
+            onDismissRequest = { pendingImportRaw = null },
+            title = { Text("导入备份") },
+            text = { Text("导入会覆盖本机现有的待办、打卡和专注记录，确定继续吗？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingImportRaw = null
+                        val ok = onBackupImport(raw)
+                        Toast.makeText(
+                            context,
+                            if (ok) "备份已恢复" else "备份文件无法识别",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                ) { Text("导入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingImportRaw = null }) { Text("取消") }
+            }
         )
     }
 }
