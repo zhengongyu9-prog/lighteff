@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
@@ -39,9 +40,9 @@ class FocusGuardService : Service() {
         override fun run() {
             runCatching { checkForeground() }
             // 自适应间隔：正常盯前台时 250ms，遮罩已经盖上就 400ms 省电，
-            // 自己在前台时完全不用盯，1s 一次就够
+            // 自己在前台或者熄屏时完全不用盯，1s 一次就够
             val delay = when {
-                FocusGuard.appVisible -> 1000L
+                FocusGuard.appVisible || !isScreenOn() -> 1000L
                 overlay != null -> 400L
                 else -> 250L
             }
@@ -57,6 +58,17 @@ class FocusGuardService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 先把服务变成前台再判断要不要继续：
+        // 用 startForegroundService 拉起的服务如果没及时 startForeground，系统会直接判 App 崩溃
+        createChannel()
+        val started = runCatching {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }.isSuccess
+        if (!started) {
+            // 系统不允许这个前台服务时安静退出，别把整个进程带崩
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // 系统自动拉起（没有 intent）时先看计时还在不在跑，不在就别留通知、别挡人
         if (intent == null) {
             val running = runCatching {
@@ -69,15 +81,6 @@ class FocusGuardService : Service() {
         }
         // 已经关掉开关或权限不全时不该留通知，直接退出
         if (!FocusGuard.isEnabled(this) || !FocusGuard.permissionsReady(this)) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        createChannel()
-        val started = runCatching {
-            startForeground(NOTIFICATION_ID, buildNotification())
-        }.isSuccess
-        if (!started) {
-            // 系统不允许这个前台服务时安静退出，别把整个进程带崩
             stopSelf()
             return START_NOT_STICKY
         }
@@ -105,6 +108,11 @@ class FocusGuardService : Service() {
             hideOverlay()
             return
         }
+        // 熄屏时谁也没在看，先把遮罩撤掉，省得亮屏瞬间还停在遮罩上
+        if (!isScreenOn()) {
+            hideOverlay()
+            return
+        }
         // 刚点了「回到专注」，给切应用留点时间，别立刻把遮罩盖回来
         if (System.currentTimeMillis() < pausedUntil) return
         // 使用情况访问被撤销时直接退出，免得一直空转、遮罩也撤不掉
@@ -122,6 +130,9 @@ class FocusGuardService : Service() {
         val allowed = systemAllowed + FocusGuard.whitelist(this)
         if (pkg in allowed) hideOverlay() else showOverlay(pkg)
     }
+
+    private fun isScreenOn(): Boolean =
+        (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
 
     private fun currentForegroundPackage(): String? {
         val usage = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
