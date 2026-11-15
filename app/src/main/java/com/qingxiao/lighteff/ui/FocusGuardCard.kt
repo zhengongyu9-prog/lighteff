@@ -90,7 +90,8 @@ fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
                     )
                 }
                 Switch(
-                    checked = enabled,
+                    // 开关只在「已开启且两个权限都在」时显示为开，权限被撤销时不会假装还在工作
+                    checked = enabled && hasUsage && hasOverlay,
                     onCheckedChange = { want ->
                         if (want && !(FocusGuard.hasUsageAccess(context) && FocusGuard.canDrawOverlay(context))) {
                             showPermission = true

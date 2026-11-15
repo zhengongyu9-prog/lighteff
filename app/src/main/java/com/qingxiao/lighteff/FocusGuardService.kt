@@ -20,6 +20,7 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import com.qingxiao.lighteff.data.AppStore
 
 /**
  * 计时期间每隔几百毫秒看一眼前台是哪个 App，白名单外的就用悬浮窗盖住。
@@ -49,6 +50,21 @@ class FocusGuardService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 系统自动拉起（没有 intent）时先看计时还在不在跑，不在就别留通知、别挡人
+        if (intent == null) {
+            val running = runCatching {
+                AppStore(filesDir).load().timerSnapshot?.running
+            }.getOrNull() == true
+            if (!running) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+        }
+        // 已经关掉开关或权限不全时不该留通知，直接退出
+        if (!FocusGuard.isEnabled(this) || !FocusGuard.permissionsReady(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         createChannel()
         val started = runCatching {
             startForeground(NOTIFICATION_ID, buildNotification())
@@ -84,6 +100,11 @@ class FocusGuardService : Service() {
         }
         // 刚点了「回到专注」，给切应用留点时间，别立刻把遮罩盖回来
         if (System.currentTimeMillis() < pausedUntil) return
+        // 使用情况访问被撤销时直接退出，免得一直空转、遮罩也撤不掉
+        if (!FocusGuard.hasUsageAccess(this)) {
+            stopSelf()
+            return
+        }
         // 悬浮窗权限被撤销时直接退出，免得空转
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
@@ -130,7 +151,20 @@ class FocusGuardService : Service() {
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller",
             "com.google.android.gms",
-            "com.android.phone"
+            "com.android.phone",
+            // 来电/紧急呼叫界面，不能挡
+            "com.android.incallui",
+            "com.google.android.dialer",
+            "com.android.emergency",
+            // 系统安装器、文件选择器、相册选择器：常被白名单 App 调起，挡了会卡住整个操作
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller",
+            "com.android.documentsui",
+            "com.google.android.documentsui",
+            "com.android.providers.media.module",
+            "com.google.android.providers.media.module",
+            "com.android.intentresolver",
+            "com.google.android.intentresolver"
         )
         // 桌面可能有多个（含系统 Resolver），用 queryIntentActivities 全部放行
         runCatching {
@@ -189,7 +223,7 @@ class FocusGuardService : Service() {
             PixelFormat.TRANSLUCENT
         )
         runCatching { windowManager.addView(view, params) }
-        overlay = view
+            .onSuccess { overlay = view }
     }
 
     private fun hideOverlay() {
