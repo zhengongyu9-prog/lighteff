@@ -110,10 +110,15 @@ private fun LightEffApp(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 // 只是转屏导致的销毁重建不算离开 App，不记分心
-                Lifecycle.Event.ON_STOP ->
+                Lifecycle.Event.ON_STOP -> {
+                    FocusGuard.appVisible = false
                     if ((context as? Activity)?.isChangingConfigurations != true) vm.onAppStopped()
+                }
                 // 回到前台时补传上次没同步成功的改动
-                Lifecycle.Event.ON_START -> vm.retryPendingCloudUpload()
+                Lifecycle.Event.ON_START -> {
+                    FocusGuard.appVisible = true
+                    vm.retryPendingCloudUpload()
+                }
                 else -> Unit
             }
         }

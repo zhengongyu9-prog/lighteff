@@ -156,6 +156,12 @@ fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
                             )
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "小米/红米手机若开了屏蔽却不生效，还要在系统设置里允许轻效「后台弹出界面」。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             },
             confirmButton = {

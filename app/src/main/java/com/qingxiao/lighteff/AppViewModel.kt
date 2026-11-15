@@ -350,7 +350,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         recordSession(TimerMode.Countdown, (target / 1000).toInt(), snapshot.label)
                         persistTimer()
-                        syncTimerService()
+                        // 这里不再重启前台服务：通知里的超时计时由 TimerService 自己的
+                        // finishCheck 负责切换，重复启动服务在小米等系统上有闪退风险
                     }
                 }
                 _timer.update { it.copy(elapsedMillis = elapsed) }

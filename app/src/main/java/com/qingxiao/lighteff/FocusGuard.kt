@@ -20,6 +20,14 @@ object FocusGuard {
     private const val KEY_ENABLED = "enabled"
     private const val KEY_WHITELIST = "whitelist"
 
+    /**
+     * 轻效自己是否在前台。由 MainActivity 的生命周期更新。
+     * 屏蔽服务据此保证遮罩永远不会盖住自己的界面：使用情况统计有延迟，
+     * 刚点「回到专注」时可能还报着上一个 App，只靠包名判断会把自己也盖住。
+     */
+    @Volatile
+    var appVisible: Boolean = false
+
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) {
@@ -68,6 +76,8 @@ object FocusGuard {
         val shouldRun = timerRunning && isEnabled(context) && permissionsReady(context)
         val intent = Intent(context, FocusGuardService::class.java)
         if (shouldRun) {
+            // 已经在跑就不重复启动，减少后台启动前台服务被系统拦下的概率
+            if (FocusGuardService.isRunning) return
             runCatching { ContextCompat.startForegroundService(context, intent) }
         } else {
             runCatching { context.stopService(intent) }

@@ -43,19 +43,28 @@ class FocusGuardService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         systemAllowed = buildSystemAllowedPackages()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        val started = runCatching {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        }.isSuccess
+        if (!started) {
+            // 系统不允许这个前台服务时安静退出，别把整个进程带崩
+            stopSelf()
+            return START_NOT_STICKY
+        }
         handler.removeCallbacks(poll)
         handler.post(poll)
         return START_STICKY
     }
 
     override fun onDestroy() {
+        isRunning = false
         handler.removeCallbacks(poll)
         hideOverlay()
         super.onDestroy()
@@ -66,6 +75,11 @@ class FocusGuardService : Service() {
     private fun checkForeground() {
         if (!FocusGuard.isEnabled(this)) {
             stopSelf()
+            return
+        }
+        // 自己在前台时一定不挡：使用情况统计有延迟，靠包名判断可能误盖自己
+        if (FocusGuard.appVisible) {
+            hideOverlay()
             return
         }
         // 刚点了「回到专注」，给切应用留点时间，别立刻把遮罩盖回来
@@ -213,5 +227,10 @@ class FocusGuardService : Service() {
     companion object {
         private const val CHANNEL_ID = "lighteff_focus_guard"
         private const val NOTIFICATION_ID = 2001
+
+        /** 服务是否已经在跑，避免反复 startForegroundService 触发系统的前台服务限制 */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
     }
 }
