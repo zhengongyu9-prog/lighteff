@@ -38,7 +38,14 @@ class FocusGuardService : Service() {
     private val poll = object : Runnable {
         override fun run() {
             runCatching { checkForeground() }
-            handler.postDelayed(this, 600L)
+            // 自适应间隔：正常盯前台时 250ms，遮罩已经盖上就 400ms 省电，
+            // 自己在前台时完全不用盯，1s 一次就够
+            val delay = when {
+                FocusGuard.appVisible -> 1000L
+                overlay != null -> 400L
+                else -> 250L
+            }
+            handler.postDelayed(this, delay)
         }
     }
 
@@ -119,7 +126,8 @@ class FocusGuardService : Service() {
     private fun currentForegroundPackage(): String? {
         val usage = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val now = System.currentTimeMillis()
-        val events = usage.queryEvents(now - 10_000L, now)
+        // 只看最近 5 秒的事件，窗口越小查询越快
+        val events = usage.queryEvents(now - 5_000L, now)
         val event = UsageEvents.Event()
         var last: String? = null
         var lastTime = 0L
