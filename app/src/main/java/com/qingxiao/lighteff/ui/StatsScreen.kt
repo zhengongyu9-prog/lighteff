@@ -1010,6 +1010,10 @@ private fun buildStats(
     val dayDoneTasks = uniqueRecords.count { dateOf(it.completedAt) == selectedDate }
     val dayCreatedOpen = tasks.count { !it.done && dateOf(it.createdAt) == selectedDate }
     val dayTaskTotal = dayDoneTasks + dayCreatedOpen
+    // 待办页现在会隐藏昨天及以前完成的，这里的「共几件」也按同样的范围算
+    val activeTaskCount = tasks.count { task ->
+        !task.done || task.completedAt == null || dateOf(task.completedAt) >= today
+    }
     val activeHabitCount = habits.count { !it.archived }
     val dayCheckIns = habits.count { selectedDate.toString() in it.checkedDates }
     val totalCheckIns = habits.sumOf { it.checkedDates.size }
@@ -1042,7 +1046,7 @@ private fun buildStats(
         StatItem("分心次数", "$dayDistractions 次", "$dayTag · 本周 $weekDistractions 次"),
         StatItem("连续专注", "$focusStreak 天", if (focusStreak > 0) "保持节奏" else "今天开始"),
         StatItem("完成计时", "${sessions.size} 次", "倒计时 + 正计时"),
-        StatItem("待办完成", "$dayDoneTasks 件", "$dayTag · 共 ${tasks.size} 件待办"),
+        StatItem("待办完成", "$dayDoneTasks 件", "$dayTag · 当前共 $activeTaskCount 件待办"),
         StatItem("待办完成率", dayRateText, dayRateSub),
         StatItem("打卡次数", "$dayCheckIns 次", "$dayTag · 共 $activeHabitCount 个习惯"),
         StatItem("累计打卡", "$totalCheckIns 次", "最长连续 $maxStreak 天")

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -11,7 +11,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="专注中"
+        android:text="@string/guard_overlay_title"
         android:textColor="#2E604F"
         android:textSize="15sp"
         android:letterSpacing="0.3" />
@@ -20,7 +20,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="18dp"
-        android:text="别走神了"
+        android:text="@string/guard_overlay_headline"
         android:textColor="#16302A"
         android:textSize="34sp"
         android:textStyle="bold" />
@@ -30,7 +30,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
-        android:text="你打开了别的应用"
+        android:text="@string/guard_overlay_app"
         android:textColor="#5B6F66"
         android:textSize="16sp" />
 
@@ -38,7 +38,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="计时还在继续，回去把事情做完"
+        android:text="@string/guard_overlay_hint"
         android:textColor="#8A9A93"
         android:textSize="14sp" />
 
@@ -49,7 +49,7 @@
         android:layout_marginTop="44dp"
         android:background="@drawable/bg_overlay_button"
         android:gravity="center"
-        android:text="回到专注"
+        android:text="@string/guard_overlay_back"
         android:textColor="#FFFFFF"
         android:textSize="17sp"
         android:textStyle="bold" />
@@ -60,8 +60,9 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="18dp"
         android:padding="10dp"
-        android:text="关闭本次屏蔽"
+        android:text="@string/guard_overlay_disable"
         android:textColor="#8A9A93"
         android:textSize="13sp" />
 
 </LinearLayout>
+

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -14,7 +14,7 @@
         android:layout_height="wrap_content"
         android:fontFamily="monospace"
         android:gravity="center"
-        android:text="00:00"
+        android:text="@string/timer_notification_time_placeholder"
         android:textColor="?android:attr/textColorPrimary"
         android:textSize="44sp"
         android:textStyle="bold" />
@@ -24,7 +24,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:text="专注计时中"
+        android:text="@string/timer_notification_label"
         android:textColor="?android:attr/textColorSecondary"
         android:textSize="13sp" />
 </LinearLayout>
+

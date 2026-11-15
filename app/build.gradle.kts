@@ -13,8 +13,8 @@ android {
         applicationId = "com.qingxiao.lighteff"
         minSdk = 26
         targetSdk = 37
-        versionCode = 16
-        versionName = "2.5"
+        versionCode = 17
+        versionName = "2.6"
     }
 
     compileOptions {

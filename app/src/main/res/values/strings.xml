@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">轻效</string>
+
+    <!-- 学霸模式拦截页 -->
+    <string name="guard_overlay_title">专注中</string>
+    <string name="guard_overlay_headline">别走神了</string>
+    <string name="guard_overlay_app">你打开了别的应用</string>
+    <string name="guard_overlay_app_format">你打开了「%1$s」</string>
+    <string name="guard_overlay_hint">计时还在继续，回去把事情做完</string>
+    <string name="guard_overlay_back">回到专注</string>
+    <string name="guard_overlay_disable">关闭本次屏蔽</string>
+
+    <!-- 计时通知 -->
+    <string name="timer_notification_time_placeholder">00:00</string>
+    <string name="timer_notification_label">专注计时中</string>
 </resources>

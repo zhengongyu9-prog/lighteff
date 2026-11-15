@@ -200,7 +200,8 @@ class FocusGuardService : Service() {
             packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
         }.getOrDefault(pkg)
         val view = LayoutInflater.from(this).inflate(R.layout.focus_lock_overlay, null, false)
-        view.findViewById<TextView>(R.id.overlay_app_name).text = "你打开了「$label」"
+        view.findViewById<TextView>(R.id.overlay_app_name).text =
+            getString(R.string.guard_overlay_app_format, label)
         view.findViewById<View>(R.id.overlay_back).setOnClickListener {
             // 切回自己时先让出 2.5 秒，避免轮询又把遮罩加回来
             pausedUntil = System.currentTimeMillis() + 2_500L

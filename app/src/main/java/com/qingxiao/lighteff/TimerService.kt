@@ -154,15 +154,25 @@ class TimerService : Service() {
 
     private fun ensureChannel() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val prefs = getSharedPreferences("lighteff_timer_channel", Context.MODE_PRIVATE)
+        val migrated = prefs.getBoolean(KEY_CHANNEL_MIGRATED, false)
         val existing = manager.getNotificationChannel(CHANNEL_ID)
-        // 旧版本建的是低优先级渠道，会折叠进「静音通知」，这里替换成普通优先级
-        if (existing == null || existing.importance != NotificationManager.IMPORTANCE_DEFAULT) {
+        if (!migrated) {
+            // 只做一次迁移：老版本建的是低优先级渠道，会折叠进「静音通知」，
+            // 迁移完记住标记，之后不再动它，用户手动调过的优先级不会被重置
             manager.deleteNotificationChannel(CHANNEL_ID)
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "计时进行中", NotificationManager.IMPORTANCE_DEFAULT)
-            )
+            manager.createNotificationChannel(defaultChannel())
+            prefs.edit().putBoolean(KEY_CHANNEL_MIGRATED, true).apply()
+            return
         }
+        if (existing == null) manager.createNotificationChannel(defaultChannel())
     }
+
+    private fun defaultChannel() = NotificationChannel(
+        CHANNEL_ID,
+        "计时进行中",
+        NotificationManager.IMPORTANCE_DEFAULT
+    )
 
     companion object {
         const val EXTRA_MODE = "extra_mode"
@@ -173,5 +183,6 @@ class TimerService : Service() {
 
         private const val CHANNEL_ID = "timer_running"
         private const val NOTIFICATION_ID = 1
+        private const val KEY_CHANNEL_MIGRATED = "channel_migrated"
     }
 }
