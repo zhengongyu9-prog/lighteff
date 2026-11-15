@@ -1,6 +1,6 @@
 package com.qingxiao.lighteff.data
 
-/** 单条待办事项。priority: 0 低 / 1 中 / 2 高；slot: 0 不限 / 1 早 / 2 中 / 3 晚 */
+/** 单条待办事项。priority: 0 低 / 1 中 / 2 高；slot: 0 不限 / 1 早上 / 2 下午 / 3 晚上 */
 data class TaskItem(
     val id: String,
     val title: String,

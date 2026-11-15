@@ -3,6 +3,8 @@ package com.qingxiao.lighteff.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -79,7 +81,7 @@ fun TodoScreen(
         }
     }
 
-    // 按优先级排序时拆成高/中/低三段；其余排序方式只有一段
+    // 按优先级排序时拆成高/中/低三段；按时段排序时按早上/下午/晚上分组；其余只有一段
     val groups = remember(filtered, sort) {
         when (sort) {
             0 -> listOf(2 to "高优先级", 1 to "中优先级", 0 to "低优先级")
@@ -89,7 +91,13 @@ fun TodoScreen(
                         .sortedWith(compareBy<TaskItem> { it.done }.thenByDescending { it.createdAt })
                 }
             1 -> listOf("" to filtered.sortedByDescending { it.createdAt })
-            else -> listOf("" to filtered.sortedBy { it.createdAt })
+            2 -> listOf("" to filtered.sortedBy { it.createdAt })
+            else -> listOf(1 to "早上", 2 to "下午", 3 to "晚上", 0 to "未分时段")
+                .map { (value, name) ->
+                    name to filtered
+                        .filter { it.slot == value }
+                        .sortedWith(compareBy<TaskItem> { it.done }.thenByDescending { it.createdAt })
+                }
         }
     }
 
@@ -243,6 +251,7 @@ private fun AddTaskCard(
         }
         Spacer(Modifier.height(4.dp))
         Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -251,7 +260,7 @@ private fun AddTaskCard(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            listOf("不限", "早", "中", "晚").forEachIndexed { index, label ->
+            listOf("不限", "早上", "下午", "晚上").forEachIndexed { index, label ->
                 FilterChip(
                     selected = slot == index,
                     onClick = { onSlotChange(index) },
@@ -312,6 +321,7 @@ private fun PriorityHeader(name: String, count: Int) {
 @Composable
 private fun SortRow(selected: Int, onSelect: (Int) -> Unit) {
     Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -320,7 +330,7 @@ private fun SortRow(selected: Int, onSelect: (Int) -> Unit) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        listOf("优先级", "最新", "最早").forEachIndexed { index, label ->
+        listOf("优先级", "最新", "最早", "时段").forEachIndexed { index, label ->
             FilterChip(
                 selected = selected == index,
                 onClick = { onSelect(index) },
@@ -338,9 +348,9 @@ private fun SortRow(selected: Int, onSelect: (Int) -> Unit) {
 @Composable
 private fun SlotPill(slot: Int) {
     val (label, background, foreground) = when (slot) {
-        1 -> Triple("早", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
-        2 -> Triple("中", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
-        else -> Triple("晚", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
+        1 -> Triple("早上", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        2 -> Triple("下午", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
+        else -> Triple("晚上", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
     }
     Surface(shape = RoundedCornerShape(6.dp), color = background) {
         Text(
