@@ -20,10 +20,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -47,6 +49,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.qingxiao.lighteff.data.AppState
+import com.qingxiao.lighteff.data.TimerMode
 import com.qingxiao.lighteff.ui.CountdownScreen
 import com.qingxiao.lighteff.ui.FocusLockScreen
 import com.qingxiao.lighteff.ui.HabitsScreen
@@ -68,12 +71,14 @@ class MainActivity : ComponentActivity() {
                 val cloud by appViewModel.cloudState.collectAsStateWithLifecycle()
                 val timer by appViewModel.timer.collectAsStateWithLifecycle()
                 val focusLock by appViewModel.focusLock.collectAsStateWithLifecycle()
+                val taskPrompt by appViewModel.taskPrompt.collectAsStateWithLifecycle()
                 LightEffApp(
                     state = state,
                     cloud = cloud,
                     vm = appViewModel,
                     timer = timer,
-                    focusLock = focusLock
+                    focusLock = focusLock,
+                    taskPrompt = taskPrompt
                 )
             }
         }
@@ -97,7 +102,8 @@ private fun LightEffApp(
     cloud: CloudUiState,
     vm: AppViewModel,
     timer: TimerState,
-    focusLock: Boolean
+    focusLock: Boolean,
+    taskPrompt: TimerTaskPrompt?
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val stateHolder = rememberSaveableStateHolder()
@@ -188,8 +194,58 @@ private fun LightEffApp(
             if (focusLock && timer.running) {
                 FocusLockScreen(timer = timer, onEmergencyExit = vm::dismissFocusLock)
             }
+
+            // 计时结束后的完成确认：不管当前停在哪个标签页都要弹出来
+            taskPrompt?.let { prompt ->
+                TimerTaskDoneDialog(
+                    prompt = prompt,
+                    onAnswer = vm::resolveTimerTaskOutcome,
+                    onDismiss = vm::dismissTimerTaskPrompt
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun TimerTaskDoneDialog(
+    prompt: TimerTaskPrompt,
+    onAnswer: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                if (prompt.label.isBlank()) "这次任务完成了吗？"
+                else "「${prompt.label}」完成了吗？"
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = if (prompt.mode == TimerMode.Countdown) {
+                        "倒计时部分已记入统计，超时时间还会继续累计。"
+                    } else {
+                        "本次计时已记入统计。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "选「完成了」会同步勾选待办；选「还没完成」会继续留在待办里，自己写的事项会自动加进待办。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onAnswer(true) }) { Text("完成了") }
+        },
+        dismissButton = {
+            TextButton(onClick = { onAnswer(false) }) { Text("还没完成") }
+        }
+    )
 }
 
 @Composable

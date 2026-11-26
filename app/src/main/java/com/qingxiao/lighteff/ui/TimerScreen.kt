@@ -96,7 +96,6 @@ fun TimerScreen(viewModel: AppViewModel) {
     val appState by viewModel.state.collectAsStateWithLifecycle()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
-    var showCompletedDialog by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     var pendingMode by remember { mutableStateOf<TimerMode?>(null) }
     var seenTick by rememberSaveable { mutableLongStateOf(timer.completionTick) }
@@ -125,7 +124,7 @@ fun TimerScreen(viewModel: AppViewModel) {
         if (timer.completionTick > seenTick) {
             seenTick = timer.completionTick
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            showCompletedDialog = true
+            // 「任务是否完成」的弹窗由 ViewModel 统一发出，切到别的页面也能弹
         }
     }
 
@@ -173,22 +172,9 @@ fun TimerScreen(viewModel: AppViewModel) {
         FocusPickerDialog(
             tasks = appState.tasks.filter { !it.done },
             onDismiss = { showPicker = false },
-            onConfirm = { label ->
+            onConfirm = { label, taskId ->
                 showPicker = false
-                viewModel.startWithLabel(label)
-            }
-        )
-    }
-
-    if (showCompletedDialog) {
-        AlertDialog(
-            onDismissRequest = { showCompletedDialog = false },
-            title = { Text("专注完成") },
-            text = { Text("本次 ${timer.targetMinutes} 分钟已记录到统计中。接下来继续按正计时走，超时时间也会一直计着。") },
-            confirmButton = {
-                TextButton(onClick = { showCompletedDialog = false }) {
-                    Text("好的")
-                }
+                viewModel.startWithLabel(label, taskId)
             }
         )
     }
@@ -218,9 +204,11 @@ fun TimerScreen(viewModel: AppViewModel) {
 private fun FocusPickerDialog(
     tasks: List<TaskItem>,
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String, String?) -> Unit
 ) {
     var text by rememberSaveable { mutableStateOf("") }
+    // 选中待办时记住 id，结束时才能准确同步那一条；手动改文字后就当成自建事项
+    var pickedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -244,8 +232,11 @@ private fun FocusPickerDialog(
                         items(tasks, key = { it.id }) { task ->
                             PickRow(
                                 title = task.title,
-                                selected = text == task.title,
-                                onClick = { text = task.title }
+                                selected = pickedTaskId == task.id,
+                                onClick = {
+                                    text = task.title
+                                    pickedTaskId = task.id
+                                }
                             )
                         }
                     }
@@ -259,7 +250,10 @@ private fun FocusPickerDialog(
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(
                     value = text,
-                    onValueChange = { text = it },
+                    onValueChange = {
+                        text = it
+                        pickedTaskId = null
+                    },
                     placeholder = { Text("比如：读《人类简史》30 页") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
@@ -267,7 +261,7 @@ private fun FocusPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(text) }) {
+            TextButton(onClick = { onConfirm(text, pickedTaskId) }) {
                 Text("开始")
             }
         },
@@ -340,79 +334,79 @@ fun TimerContent(
         ((timer.elapsedMillis % 60_000L).toFloat() / 60_000f).coerceIn(0f, 1f)
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 16.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        item {
-            ScreenHeader(
-                title = "计时",
-                subtitle = "读书、专注，把时间花在重要的事上"
-            )
-        }
-        item {
-            ModeRow(mode = timer.mode, onSelect = onSelectMode, enabled = !timer.running)
-        }
-        item {
-            TimerRing(
-                progress = progress,
-                timeText = timeText,
-                caption = timerCaption(timer)
-            )
-        }
-        if (timer.mode == TimerMode.Countdown) {
-            item {
-                DurationPicker(timer = timer, onSelect = onSelectMinutes)
+        ScreenHeader(
+            title = "计时",
+            subtitle = "读书、专注，把时间花在重要的事上"
+        )
+        ModeRow(mode = timer.mode, onSelect = onSelectMode, enabled = !timer.running)
+        // 圆环区域占据标题和下方控件之间的剩余高度，让计时主体在屏幕中间
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                val ringSize = minOf(maxWidth * 0.72f, maxHeight * 0.95f, 300.dp)
+                TimerRing(
+                    progress = progress,
+                    timeText = timeText,
+                    caption = timerCaption(timer),
+                    modifier = Modifier.size(ringSize)
+                )
             }
         }
-        item {
-            ControlButtons(
-                timer = timer,
-                onToggle = onToggle,
-                onReset = onReset,
-                onFinish = onFinish
-            )
+        if (timer.mode == TimerMode.Countdown) {
+            DurationPicker(timer = timer, onSelect = onSelectMinutes)
         }
-        item {
-            FocusGuardCard(onEnabledChange = onGuardChange)
-        }
+        ControlButtons(
+            timer = timer,
+            onToggle = onToggle,
+            onReset = onReset,
+            onFinish = onFinish
+        )
+        FocusGuardCard(onEnabledChange = onGuardChange)
         if (notifyDenied) {
-            item {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "通知权限没开启：计时照常运行，但通知栏看不到倒计时",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.weight(1f)
-                        )
-                        TextButton(onClick = onOpenNotifySettings) { Text("去开启") }
-                    }
+                    Text(
+                        text = "通知权限没开启：计时照常运行，但通知栏看不到倒计时",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onOpenNotifySettings) { Text("去开启") }
                 }
             }
         }
-        item {
-            Text(
-                text = if (timer.mode == TimerMode.Countdown) {
-                    "倒计时结束会自动记录一次专注，可在「统计」里查看"
-                } else {
-                    "点「完成并记录」保存本次正计时，重置不会记录"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-        }
+        Text(
+            text = if (timer.mode == TimerMode.Countdown) {
+                "倒计时结束会自动记录一次专注，可在「统计」里查看"
+            } else {
+                "点「完成并记录」保存本次正计时，重置不会记录"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 2.dp)
+        )
     }
 }
 
@@ -577,15 +571,26 @@ private fun DurationPicker(timer: TimerState, onSelect: (Int) -> Unit) {
 }
 
 @Composable
-private fun TimerRing(progress: Float, timeText: String, caption: String) {
+private fun TimerRing(
+    progress: Float,
+    timeText: String,
+    caption: String,
+    modifier: Modifier = Modifier
+) {
     val trackColor = MaterialTheme.colorScheme.outlineVariant
     val ringColor = MaterialTheme.colorScheme.primary
 
-    Box(modifier = Modifier.size(168.dp), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier = modifier, contentAlignment = Alignment.Center) {
+        // 描边和字号跟着圆环直径缩放，避免放大后变细、文字变挤
+        val strokeWidth = maxWidth * 0.085f
+        val baseFont = (maxWidth.value * 0.24f).sp
+        val timeFontSize = if (timeText.length > 5) baseFont * 0.72f else baseFont
+        val captionFontSize = (maxWidth.value * 0.068f).coerceIn(12f, 16f).sp
+
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 14.dp.toPx()
-            val inset = strokeWidth / 2
-            val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
+            val stroke = strokeWidth.toPx()
+            val inset = stroke / 2
+            val arcSize = Size(size.width - stroke, size.height - stroke)
             drawArc(
                 color = trackColor,
                 startAngle = -90f,
@@ -593,7 +598,7 @@ private fun TimerRing(progress: Float, timeText: String, caption: String) {
                 useCenter = false,
                 topLeft = Offset(inset, inset),
                 size = arcSize,
-                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                style = Stroke(width = stroke, cap = StrokeCap.Round)
             )
             if (progress > 0f) {
                 drawArc(
@@ -603,15 +608,14 @@ private fun TimerRing(progress: Float, timeText: String, caption: String) {
                     useCenter = false,
                     topLeft = Offset(inset, inset),
                     size = arcSize,
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+                    style = Stroke(width = stroke, cap = StrokeCap.Round)
                 )
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = timeText,
-                // 超过 1 小时会多出两段数字，字号调小一点避免挤出圆环
-                fontSize = if (timeText.length > 5) 30.sp else 42.sp,
+                fontSize = timeFontSize,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
                 color = MaterialTheme.colorScheme.onBackground
@@ -619,7 +623,7 @@ private fun TimerRing(progress: Float, timeText: String, caption: String) {
             Spacer(Modifier.height(6.dp))
             Text(
                 text = caption,
-                style = MaterialTheme.typography.bodySmall,
+                fontSize = captionFontSize,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

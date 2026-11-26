@@ -107,6 +107,8 @@ private fun TaskItem.toJson() = JSONObject().apply {
     put("createdAt", createdAt)
     put("completedAt", completedAt ?: JSONObject.NULL)
     put("slot", slot)
+    put("dueEpochDay", dueEpochDay ?: JSONObject.NULL)
+    put("endEpochDay", endEpochDay ?: JSONObject.NULL)
 }
 
 private fun CountdownItem.toJson() = JSONObject().apply {
@@ -147,6 +149,8 @@ private fun StoredTimer.toJson() = JSONObject().apply {
     put("running", running)
     put("anchorWallMillis", anchorWallMillis)
     put("label", label)
+    put("taskId", taskId ?: JSONObject.NULL)
+    put("recordedOvertimeMillis", recordedOvertimeMillis)
 }
 
 private fun JSONObject.toStoredTimer(): StoredTimer = StoredTimer(
@@ -157,8 +161,13 @@ private fun JSONObject.toStoredTimer(): StoredTimer = StoredTimer(
     lastElapsedMillis = optLong("lastElapsedMillis", optLong("elapsedMillis", 0L)).coerceAtLeast(0L),
     running = optBoolean("running", false),
     anchorWallMillis = optLong("anchorWallMillis", 0L),
-    label = optString("label")
+    label = optString("label"),
+    taskId = optString("taskId").takeIf { it.isNotBlank() },
+    recordedOvertimeMillis = optLong("recordedOvertimeMillis", 0L).coerceAtLeast(0L)
 )
+
+private fun JSONObject.optNullableLong(key: String): Long? =
+    if (has(key) && !isNull(key)) optLong(key) else null
 
 private fun JSONArray?.toTasks(): List<TaskItem> {
     if (this == null) return emptyList()
@@ -181,7 +190,9 @@ private fun JSONArray?.toTasks(): List<TaskItem> {
                     done = obj.optBoolean("done", false),
                     createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                     completedAt = completedAt,
-                    slot = obj.optInt("slot", 0).coerceIn(0, 3)
+                    slot = obj.optInt("slot", 0).coerceIn(0, 3),
+                    dueEpochDay = obj.optNullableLong("dueEpochDay"),
+                    endEpochDay = obj.optNullableLong("endEpochDay")
                 )
             )
         }

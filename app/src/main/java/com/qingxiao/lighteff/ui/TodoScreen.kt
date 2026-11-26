@@ -3,11 +3,14 @@ package com.qingxiao.lighteff.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
@@ -35,6 +43,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,20 +64,24 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.qingxiao.lighteff.R
 import com.qingxiao.lighteff.data.TaskItem
-import com.qingxiao.lighteff.util.createdLabel
 import com.qingxiao.lighteff.util.todayLabel
+import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 @Composable
 fun TodoScreen(
     tasks: List<TaskItem>,
-    onAdd: (String, Int, Int) -> Unit,
+    onAdd: (String, Int, Int, Long?, Long?) -> Unit,
     onToggle: (String) -> Unit,
     onDelete: (String) -> Unit
 ) {
     var input by rememberSaveable { mutableStateOf("") }
     var priority by rememberSaveable { mutableIntStateOf(1) }
     var slot by rememberSaveable { mutableIntStateOf(0) }
+    var dueDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    var endDay by rememberSaveable { mutableStateOf<Long?>(null) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var pendingDelete by remember { mutableStateOf<TaskItem?>(null) }
@@ -104,7 +118,14 @@ fun TodoScreen(
                 }
             1 -> listOf("" to filtered.sortedByDescending { it.createdAt })
             2 -> listOf("" to filtered.sortedBy { it.createdAt })
-            else -> listOf(1 to "早上", 2 to "下午", 3 to "晚上", 0 to "未分时段")
+            4 -> listOf(
+                "" to filtered.sortedWith(
+                    compareBy<TaskItem> { it.done }
+                        .thenBy { it.dueEpochDay ?: Long.MAX_VALUE }
+                        .thenByDescending { it.createdAt }
+                )
+            )
+            else -> listOf(1 to "上午", 2 to "下午", 3 to "晚上", 0 to "未分时段")
                 .map { (value, name) ->
                     name to filtered
                         .filter { it.slot == value }
@@ -115,7 +136,7 @@ fun TodoScreen(
 
     fun submit() {
         if (input.isNotBlank()) {
-            onAdd(input, priority, slot)
+            onAdd(input, priority, slot, dueDay, endDay)
             input = ""
             focusManager.clearFocus()
         }
@@ -141,17 +162,26 @@ fun TodoScreen(
                 input = input,
                 priority = priority,
                 slot = slot,
+                dueDay = dueDay,
+                endDay = endDay,
                 onInputChange = { input = it },
                 onPriorityChange = { priority = it },
                 onSlotChange = { slot = it },
+                onDateChange = { start, end ->
+                    dueDay = start
+                    endDay = end
+                },
                 onSubmit = { submit() }
             )
         }
         item {
-            FilterRow(selected = filter, tasks = visibleTasks, onSelect = { filter = it })
-        }
-        item {
-            SortRow(selected = sort, onSelect = { sort = it })
+            FilterRow(
+                selected = filter,
+                tasks = visibleTasks,
+                sort = sort,
+                onSelect = { filter = it },
+                onSortSelect = { sort = it }
+            )
         }
         if (filtered.isEmpty()) {
             item {
@@ -206,17 +236,35 @@ fun TodoScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun AddTaskCard(
     input: String,
     priority: Int,
     slot: Int,
+    dueDay: Long?,
+    endDay: Long?,
     onInputChange: (String) -> Unit,
     onPriorityChange: (Int) -> Unit,
     onSlotChange: (Int) -> Unit,
+    onDateChange: (Long?, Long?) -> Unit,
     onSubmit: () -> Unit
 ) {
+    // 默认收起日期/时段/优先级，避免没输入时也占掉一大块屏幕
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showRangePicker by remember { mutableStateOf(false) }
+    val today = LocalToday.current
+    val todayDay = today.toEpochDay()
+    val quickDays = listOf(todayDay to "今天", todayDay + 1 to "明天", todayDay + 2 to "后天")
+    val priorityLabel = listOf("低", "中", "高")[priority.coerceIn(0, 2)]
+    val slotLabel = listOf("不限", "上午", "下午", "晚上")[slot.coerceIn(0, 3)]
+    val dateSummary = when {
+        dueDay == null -> "不限日期"
+        endDay != null -> "阶段 ${shortDate(dueDay)}–${shortDate(endDay)}"
+        else -> planDateLabel(dueDay, today)
+    }
+
     AppCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -243,51 +291,176 @@ private fun AddTaskCard(
                 )
             }
         }
-        Spacer(Modifier.height(12.dp))
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "优先级",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "$dateSummary · $slotLabel · 优先级 $priorityLabel",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
             )
-            listOf("低", "中", "高").forEachIndexed { index, label ->
-                FilterChip(
-                    selected = priority == index,
-                    onClick = { onPriorityChange(index) },
-                    label = { Text(label) }
+            Text(
+                text = if (expanded) "收起" else "更多选项",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+        if (expanded) {
+            Spacer(Modifier.height(4.dp))
+            // 日期：今天/明天/后天快捷选，也可以翻日历或选一个阶段
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "日期",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                FilterChip(
+                    selected = dueDay == null,
+                    onClick = { onDateChange(null, null) },
+                    label = { Text("不限") }
+                )
+                quickDays.forEach { (day, label) ->
+                    FilterChip(
+                        selected = dueDay == day && endDay == null,
+                        onClick = { onDateChange(day, null) },
+                        label = { Text(label) }
+                    )
+                }
+                val customDay = dueDay?.takeIf { endDay == null && it !in quickDays.map { pair -> pair.first } }
+                FilterChip(
+                    selected = customDay != null,
+                    onClick = { showDatePicker = true },
+                    label = { Text(customDay?.let { planDateLabel(it, today) } ?: "选日期") }
+                )
+                FilterChip(
+                    selected = endDay != null,
+                    onClick = { showRangePicker = true },
+                    label = { Text("阶段") }
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "时段",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                listOf("不限", "上午", "下午", "晚上").forEachIndexed { index, label ->
+                    FilterChip(
+                        selected = slot == index,
+                        onClick = { onSlotChange(index) },
+                        label = { Text(label) }
+                    )
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "优先级",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                listOf("低", "中", "高").forEachIndexed { index, label ->
+                    FilterChip(
+                        selected = priority == index,
+                        onClick = { onPriorityChange(index) },
+                        label = { Text(label) }
+                    )
+                }
             }
         }
-        Spacer(Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "时段",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            listOf("不限", "早上", "下午", "晚上").forEachIndexed { index, label ->
-                FilterChip(
-                    selected = slot == index,
-                    onClick = { onSlotChange(index) },
-                    label = { Text(label) }
-                )
+    }
+
+    if (showDatePicker) {
+        val dateState = rememberDatePickerState(
+            initialSelectedDateMillis = dueDay?.let { epochDayToUtcMillis(it) }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        dateState.selectedDateMillis?.let {
+                            onDateChange(utcMillisToEpochDay(it), null)
+                        }
+                        showDatePicker = false
+                    }
+                ) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("取消") }
             }
+        ) {
+            DatePicker(state = dateState)
+        }
+    }
+
+    if (showRangePicker) {
+        val rangeState = rememberDateRangePickerState(
+            initialSelectedStartDateMillis = dueDay?.let { epochDayToUtcMillis(it) },
+            initialSelectedEndDateMillis = endDay?.let { epochDayToUtcMillis(it) }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showRangePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val start = rangeState.selectedStartDateMillis
+                        val end = rangeState.selectedEndDateMillis
+                        if (start != null) {
+                            val startDay = utcMillisToEpochDay(start)
+                            val finish = end?.let { utcMillisToEpochDay(it) }?.takeIf { it > startDay }
+                            onDateChange(startDay, finish)
+                        }
+                        showRangePicker = false
+                    }
+                ) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRangePicker = false }) { Text("取消") }
+            }
+        ) {
+            DateRangePicker(state = rangeState, modifier = Modifier.weight(1f))
         }
     }
 }
 
+private val sortLabels = listOf("优先级", "最新", "最早", "时段", "日期")
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FilterRow(selected: Int, tasks: List<TaskItem>, onSelect: (Int) -> Unit) {
+private fun FilterRow(
+    selected: Int,
+    tasks: List<TaskItem>,
+    sort: Int,
+    onSelect: (Int) -> Unit,
+    onSortSelect: (Int) -> Unit
+) {
+    var showSortMenu by remember { mutableStateOf(false) }
     val doneCount = tasks.count { it.done }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         FilterChip(
             selected = selected == 0,
             onClick = { onSelect(0) },
@@ -303,6 +476,30 @@ private fun FilterRow(selected: Int, tasks: List<TaskItem>, onSelect: (Int) -> U
             onClick = { onSelect(2) },
             label = { Text("已完成 $doneCount") }
         )
+        // 排序收进一个下拉，和筛选用同一行，省出一整行高度
+        Box {
+            FilterChip(
+                selected = false,
+                onClick = { showSortMenu = true },
+                label = {
+                    Text(
+                        text = "排序 · ${sortLabels.getOrElse(sort) { sortLabels[0] }}",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            )
+            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                sortLabels.forEachIndexed { index, label ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            onSortSelect(index)
+                            showSortMenu = false
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -329,38 +526,10 @@ private fun PriorityHeader(name: String, count: Int) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SortRow(selected: Int, onSelect: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = "排序",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        listOf("优先级", "最新", "最早", "时段").forEachIndexed { index, label ->
-            FilterChip(
-                selected = selected == index,
-                onClick = { onSelect(index) },
-                label = {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-            )
-        }
-    }
-}
-
 @Composable
 private fun SlotPill(slot: Int) {
     val (label, background, foreground) = when (slot) {
-        1 -> Triple("早上", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
+        1 -> Triple("上午", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
         2 -> Triple("下午", MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer)
         else -> Triple("晚上", MaterialTheme.colorScheme.tertiaryContainer, MaterialTheme.colorScheme.onTertiaryContainer)
     }
@@ -432,17 +601,16 @@ private fun TaskCard(
                     }
                 )
                 Spacer(Modifier.height(6.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (task.slot != 0) SlotPill(task.slot)
-                    PriorityPill(task.priority)
-                    Text(
-                        text = createdLabel(task.createdAt),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
+                // 已完成的任务只留标题，不再堆日期/优先级/时段这些没用的信息
+                if (!task.done) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (task.dueEpochDay != null) DatePill(task)
+                        if (task.slot != 0) SlotPill(task.slot)
+                        PriorityPill(task.priority)
+                    }
                 }
             }
             IconButton(onClick = onDelete) {
@@ -456,3 +624,59 @@ private fun TaskCard(
         }
     }
 }
+
+@Composable
+private fun DatePill(task: TaskItem) {
+    val start = task.dueEpochDay
+    if (start != null) {
+        val end = task.endEpochDay
+        val today = LocalToday.current
+        val todayDay = today.toEpochDay()
+        val overdue = if (end != null) end < todayDay else start < todayDay
+        val label = if (end != null && end > start) {
+            "阶段 ${shortDate(start)}–${shortDate(end)}"
+        } else {
+            planDateLabel(start, today)
+        }
+        val background = if (overdue) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.secondaryContainer
+        }
+        val foreground = if (overdue) {
+            MaterialTheme.colorScheme.onErrorContainer
+        } else {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        }
+        Surface(shape = RoundedCornerShape(6.dp), color = background) {
+            Text(
+                text = if (overdue) "逾期 · $label" else label,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                color = foreground
+            )
+        }
+    }
+}
+
+private fun planDateLabel(day: Long, today: LocalDate): String {
+    val date = LocalDate.ofEpochDay(day)
+    return when (date) {
+        today -> "今天"
+        today.plusDays(1) -> "明天"
+        today.plusDays(2) -> "后天"
+        else -> "${date.monthValue}月${date.dayOfMonth}日"
+    }
+}
+
+private fun shortDate(day: Long): String {
+    val date = LocalDate.ofEpochDay(day)
+    return "${date.monthValue}/${date.dayOfMonth}"
+}
+
+private fun epochDayToUtcMillis(day: Long): Long =
+    LocalDate.ofEpochDay(day).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+private fun utcMillisToEpochDay(millis: Long): Long =
+    Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toEpochDay()

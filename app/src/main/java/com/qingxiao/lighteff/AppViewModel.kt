@@ -42,7 +42,18 @@ data class TimerState(
     val completionTick: Long = 0L,
     /** 倒计时已经走完，之后按正计时继续往上记超时时间 */
     val completed: Boolean = false,
-    val label: String = ""
+    /** 倒计时结束后已经记进统计的超时毫秒数，避免暂停/重置时重复补记 */
+    val recordedOvertimeMillis: Long = 0L,
+    val label: String = "",
+    /** 从待办里选的那一条；自己临时写的事项为 null */
+    val taskId: String? = null
+)
+
+/** 计时结束后询问「任务是否完成」，用于同步待办 */
+data class TimerTaskPrompt(
+    val mode: TimerMode,
+    val label: String,
+    val taskId: String?
 )
 
 /** 账号与云同步的界面状态 */
@@ -86,6 +97,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _focusLock = MutableStateFlow(false)
     val focusLock: StateFlow<Boolean> = _focusLock.asStateFlow()
 
+    /** 计时结束后待确认「任务是否完成」的弹窗，放在 ViewModel 里，切到别的页面也能弹出 */
+    private val _taskPrompt = MutableStateFlow<TimerTaskPrompt?>(null)
+    val taskPrompt: StateFlow<TimerTaskPrompt?> = _taskPrompt.asStateFlow()
+
     private var tickerJob: Job? = null
     private var accumulatedMillis: Long = 0L
     private var anchorRealtime: Long = 0L
@@ -119,9 +134,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---------- 待办 ----------
 
-    fun addTask(title: String, priority: Int, slot: Int = 0) {
+    fun addTask(
+        title: String,
+        priority: Int,
+        slot: Int = 0,
+        dueEpochDay: Long? = null,
+        endEpochDay: Long? = null
+    ) {
         val text = title.trim()
         if (text.isEmpty()) return
+        val start = dueEpochDay
+        // 阶段任务的结束日必须晚于开始日，否则按单日任务处理
+        val end = endEpochDay?.takeIf { start != null && it > start }
         mutate { current ->
             current.copy(
                 tasks = listOf(
@@ -129,7 +153,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         id = UUID.randomUUID().toString(),
                         title = text,
                         priority = priority,
-                        slot = slot.coerceIn(0, 3)
+                        slot = slot.coerceIn(0, 3),
+                        dueEpochDay = start,
+                        endEpochDay = end
                     )
                 ) + current.tasks
             )
@@ -222,9 +248,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setTimerMode(mode: TimerMode) {
         if (_timer.value.mode == mode) return
         stopTicker()
+        flushOvertime()
         accumulatedMillis = 0L
         _timer.update {
-            it.copy(mode = mode, elapsedMillis = 0L, running = false, completed = false, label = "")
+            it.copy(
+                mode = mode,
+                elapsedMillis = 0L,
+                running = false,
+                completed = false,
+                recordedOvertimeMillis = 0L,
+                label = "",
+                taskId = null
+            )
         }
         persistTimer()
         syncTimerService()
@@ -233,13 +268,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setCountdownMinutes(minutes: Int) {
         if (_timer.value.running) return
         stopTicker()
+        flushOvertime()
         accumulatedMillis = 0L
         _timer.update {
             it.copy(
                 targetMinutes = minutes.coerceIn(1, MAX_MINUTES),
                 elapsedMillis = 0L,
                 completed = false,
-                label = ""
+                recordedOvertimeMillis = 0L,
+                label = "",
+                taskId = null
             )
         }
         persistTimer()
@@ -256,25 +294,44 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** 选好「这次专注做什么」之后开始计时 */
-    fun startWithLabel(label: String) {
+    fun startWithLabel(label: String, taskId: String? = null) {
         if (_timer.value.running) return
         val text = label.trim()
         val current = _timer.value
         val finished = current.mode == TimerMode.Countdown &&
             current.elapsedMillis >= current.targetMinutes * 60_000L
         if (finished) {
+            // 开新一轮前先把这一轮多出来的超时时间记进统计
+            flushOvertime()
             accumulatedMillis = 0L
-            _timer.update { it.copy(elapsedMillis = 0L, label = text) }
+            _timer.update {
+                it.copy(
+                    elapsedMillis = 0L,
+                    recordedOvertimeMillis = 0L,
+                    label = text,
+                    taskId = taskId
+                )
+            }
         } else {
-            _timer.update { it.copy(label = text) }
+            _timer.update { it.copy(label = text, taskId = taskId) }
         }
         startTimer()
     }
 
     fun resetTimer() {
         stopTicker()
+        flushOvertime()
         accumulatedMillis = 0L
-        _timer.update { it.copy(elapsedMillis = 0L, running = false, completed = false, label = "") }
+        _timer.update {
+            it.copy(
+                elapsedMillis = 0L,
+                running = false,
+                completed = false,
+                recordedOvertimeMillis = 0L,
+                label = "",
+                taskId = null
+            )
+        }
         _focusLock.value = false
         persistTimer()
         syncTimerService()
@@ -286,13 +343,41 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (current.mode != TimerMode.Stopwatch) return
         val seconds = (current.elapsedMillis / 1000).toInt()
         if (seconds <= 0) return
+        val prompt = TimerTaskPrompt(current.mode, current.label, current.taskId)
         stopTicker()
         accumulatedMillis = 0L
-        _timer.update { it.copy(elapsedMillis = 0L, running = false, label = "") }
+        _timer.update { it.copy(elapsedMillis = 0L, running = false, label = "", taskId = null) }
         _focusLock.value = false
         recordSession(TimerMode.Stopwatch, seconds, current.label)
         persistTimer()
         syncTimerService()
+        // 记录完再问这次任务是否完成，方便同步待办
+        _taskPrompt.value = prompt
+    }
+
+    /** 计时结束弹窗：确认任务是否完成，并同步待办 */
+    fun resolveTimerTaskOutcome(completed: Boolean) {
+        val prompt = _taskPrompt.value ?: return
+        _taskPrompt.value = null
+        if (completed) {
+            val id = prompt.taskId ?: return
+            val task = _state.value.tasks.firstOrNull { it.id == id } ?: return
+            if (!task.done) toggleTask(id)
+            return
+        }
+        // 「还没完成」：选中的待办本来就还在列表里，不用动
+        val stillExists = prompt.taskId?.let { id -> _state.value.tasks.any { it.id == id } } == true
+        if (stillExists) return
+        // 计时页里自己写的事项，没完成就补进待办
+        val text = prompt.label.trim()
+        if (text.isEmpty()) return
+        if (_state.value.tasks.any { !it.done && it.title == text }) return
+        addTask(text, priority = 1)
+    }
+
+    /** 点弹窗外/返回键时只关掉弹窗，不改待办状态 */
+    fun dismissTimerTaskPrompt() {
+        _taskPrompt.value = null
     }
 
     private fun startTimer() {
@@ -302,11 +387,18 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             val freshRound = current.completed ||
                 current.elapsedMillis == 0L || current.elapsedMillis >= currentTarget
             if (freshRound) {
+                // 新一轮开跑前，把上一轮倒计时结束后的超时时间补记进统计
+                flushOvertime()
                 // 新一轮一律按「上次选的时长」开始，完成后也沿用，不会回到默认 25 分钟
                 val remembered = timerPrefs.getInt(KEY_LAST_MINUTES, current.targetMinutes)
                     .takeIf { it in 1..MAX_MINUTES } ?: current.targetMinutes
                 _timer.update {
-                    it.copy(targetMinutes = remembered, elapsedMillis = 0L, completed = false)
+                    it.copy(
+                        targetMinutes = remembered,
+                        elapsedMillis = 0L,
+                        completed = false,
+                        recordedOvertimeMillis = 0L
+                    )
                 }
             }
         }
@@ -350,6 +442,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         recordSession(TimerMode.Countdown, (target / 1000).toInt(), snapshot.label)
                         persistTimer()
+                        // 到点后问一下这次任务完成没有，顺手同步待办
+                        _taskPrompt.value =
+                            TimerTaskPrompt(TimerMode.Countdown, snapshot.label, snapshot.taskId)
                         // 这里不再重启前台服务：通知里的超时计时由 TimerService 自己的
                         // finishCheck 负责切换，重复启动服务在小米等系统上有闪退风险
                     }
@@ -362,6 +457,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun pauseTimer() {
         stopTicker()
+        // 暂停即视为这一轮超时结束，先把还没入账的超时时间补上
+        flushOvertime()
         accumulatedMillis = _timer.value.elapsedMillis
         _timer.update { it.copy(running = false) }
         _focusLock.value = false
@@ -416,7 +513,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             lastElapsedMillis = snapshot.elapsedMillis,
             running = snapshot.running,
             anchorWallMillis = if (snapshot.running) anchorWallMillis else 0L,
-            label = snapshot.label
+            label = snapshot.label,
+            taskId = snapshot.taskId,
+            recordedOvertimeMillis = snapshot.recordedOvertimeMillis
         )
         mutate { it.copy(timerSnapshot = stored) }
     }
@@ -453,7 +552,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 targetMinutes = savedMinutes,
                 elapsedMillis = elapsed,
                 running = false,
-                label = saved.label
+                label = saved.label,
+                taskId = saved.taskId
             )
             persistTimer()
             syncTimerService()
@@ -475,7 +575,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 elapsedMillis = elapsed,
                 running = false,
                 completed = true,
-                label = saved.label
+                recordedOvertimeMillis = saved.recordedOvertimeMillis,
+                label = saved.label,
+                taskId = saved.taskId
             )
             if (saved.running) {
                 val finishedAt = saved.anchorWallMillis + (target - saved.elapsedMillis)
@@ -503,7 +605,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 targetMinutes = savedMinutes,
                 elapsedMillis = elapsed,
                 running = false,
-                label = saved.label
+                label = saved.label,
+                taskId = saved.taskId
             )
             if (saved.running) resumeTicker()
         }
@@ -758,6 +861,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun isLocalEmpty(state: AppState): Boolean =
         state.tasks.isEmpty() && state.countdowns.isEmpty() && state.habits.isEmpty() &&
             state.sessions.isEmpty() && state.taskRecords.isEmpty()
+
+    /**
+     * 倒计时结束后的「超时正计时」不像倒计时到点那样自动入账，
+     * 在暂停、重置、切换模式或开新一轮时，把还没记过的超时补成一条正计时记录。
+     */
+    private fun flushOvertime() {
+        val snapshot = _timer.value
+        if (snapshot.mode != TimerMode.Countdown) return
+        val target = snapshot.targetMinutes * 60_000L
+        val overtime = (snapshot.elapsedMillis - target).coerceAtLeast(0L)
+        val pendingMillis = overtime - snapshot.recordedOvertimeMillis
+        val seconds = (pendingMillis / 1000L).toInt()
+        if (seconds <= 0) return
+        // 先推进已入账水位，只记整秒，零头留到下次补记
+        _timer.update {
+            it.copy(recordedOvertimeMillis = it.recordedOvertimeMillis + seconds * 1000L)
+        }
+        recordSession(TimerMode.Stopwatch, seconds, snapshot.label)
+    }
 
     private fun recordSession(
         mode: TimerMode,

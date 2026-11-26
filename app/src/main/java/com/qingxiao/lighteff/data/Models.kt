@@ -1,6 +1,6 @@
 package com.qingxiao.lighteff.data
 
-/** 单条待办事项。priority: 0 低 / 1 中 / 2 高；slot: 0 不限 / 1 早上 / 2 下午 / 3 晚上 */
+/** 单条待办事项。priority: 0 低 / 1 中 / 2 高；slot: 0 不限 / 1 上午 / 2 下午 / 3 晚上 */
 data class TaskItem(
     val id: String,
     val title: String,
@@ -8,7 +8,11 @@ data class TaskItem(
     val done: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val completedAt: Long? = null,
-    val slot: Int = 0
+    val slot: Int = 0,
+    /** 计划日期（epochDay），null 表示不限日期 */
+    val dueEpochDay: Long? = null,
+    /** 阶段性任务的结束日；null 表示单日任务 */
+    val endEpochDay: Long? = null
 )
 
 /** 重要日子的倒计日，使用 epochDay 存储目标日期，避免时区偏移问题 */
@@ -38,7 +42,11 @@ data class StoredTimer(
     val running: Boolean,
     /** 本轮开始时的墙上时间，running 时用它补上进程被杀期间走过的时间 */
     val anchorWallMillis: Long,
-    val label: String
+    val label: String,
+    /** 从待办里选的那一条；自己临时写的事项为 null */
+    val taskId: String? = null,
+    /** 倒计时结束后的超时时间里，已经补记进统计的部分，防止重复补记 */
+    val recordedOvertimeMillis: Long = 0L
 )
 
 /** 计时模式：倒计时 / 正计时 */

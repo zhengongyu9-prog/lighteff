@@ -76,7 +76,7 @@ private fun PreviewSurface(content: @Composable () -> Unit) {
 @Composable
 private fun TodoPreview() {
     PreviewSurface {
-        TodoScreen(tasks = previewTasks, onAdd = { _, _, _ -> }, onToggle = {}, onDelete = {})
+        TodoScreen(tasks = previewTasks, onAdd = { _, _, _, _, _ -> }, onToggle = {}, onDelete = {})
     }
 }
 
