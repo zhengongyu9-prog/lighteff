@@ -101,6 +101,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _taskPrompt = MutableStateFlow<TimerTaskPrompt?>(null)
     val taskPrompt: StateFlow<TimerTaskPrompt?> = _taskPrompt.asStateFlow()
 
+    /** 白名单变更计数：全屏专注页改完白名单后，让计时页的卡片同步刷新 */
+    private val _whitelistVersion = MutableStateFlow(0)
+    val whitelistVersion: StateFlow<Int> = _whitelistVersion.asStateFlow()
+
+    fun notifyWhitelistChanged() {
+        _whitelistVersion.value++
+    }
+
     private var tickerJob: Job? = null
     private var accumulatedMillis: Long = 0L
     private var anchorRealtime: Long = 0L

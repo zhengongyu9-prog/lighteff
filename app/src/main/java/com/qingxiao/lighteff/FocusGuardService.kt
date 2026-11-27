@@ -8,6 +8,7 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -15,6 +16,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
@@ -31,6 +34,8 @@ class FocusGuardService : Service() {
     private lateinit var windowManager: WindowManager
     private var overlay: View? = null
     private var blockedPackage: String? = null
+    /** 1 像素的常驻小窗，让系统始终认为本应用有可见窗口，避免后台被冻结 */
+    private var keepAlive: View? = null
     /** 系统级永远放行的包，白名单在每次轮询时叠加，改完立即生效 */
     private var systemAllowed: Set<String> = emptySet()
     private var pausedUntil = 0L
@@ -86,6 +91,7 @@ class FocusGuardService : Service() {
         }
         handler.removeCallbacks(poll)
         handler.post(poll)
+        showKeepAlive()
         return START_STICKY
     }
 
@@ -93,6 +99,7 @@ class FocusGuardService : Service() {
         isRunning = false
         handler.removeCallbacks(poll)
         hideOverlay()
+        hideKeepAlive()
         super.onDestroy()
     }
 
@@ -125,7 +132,8 @@ class FocusGuardService : Service() {
             stopSelf()
             return
         }
-        val pkg = currentForegroundPackage() ?: return
+        val pkg = currentForegroundPackage()
+        if (pkg == null) return
         // 白名单每次重新读，用户在计时过程中勾选/取消立刻生效
         val allowed = systemAllowed + FocusGuard.whitelist(this)
         if (pkg in allowed) hideOverlay() else showOverlay(pkg)
@@ -244,12 +252,43 @@ class FocusGuardService : Service() {
         )
         runCatching { windowManager.addView(view, params) }
             .onSuccess { overlay = view }
+            .onFailure { Log.e("FocusGuard", "overlay failed for $pkg", it) }
     }
 
     private fun hideOverlay() {
         val view = overlay ?: return
         overlay = null
         blockedPackage = null
+        runCatching { windowManager.removeView(view) }
+    }
+
+    /**
+     * 小米/红米会冻结没有可见窗口的后台进程，连前台服务都不认。
+     * 挂一个 1 像素的透明悬浮窗，进程就不会被判定成可回收的后台。
+     */
+    private fun showKeepAlive() {
+        if (keepAlive != null || !Settings.canDrawOverlays(this)) return
+        val view = View(this).apply { setBackgroundColor(Color.TRANSPARENT) }
+        val params = WindowManager.LayoutParams(
+            1,
+            1,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+        }
+        runCatching { windowManager.addView(view, params) }
+            .onSuccess { keepAlive = view }
+    }
+
+    private fun hideKeepAlive() {
+        val view = keepAlive ?: return
+        keepAlive = null
         runCatching { windowManager.removeView(view) }
     }
 

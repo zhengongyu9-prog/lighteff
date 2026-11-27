@@ -3,6 +3,9 @@ package com.qingxiao.lighteff.ui
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -19,8 +22,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +43,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.qingxiao.lighteff.FocusGuard
 import com.qingxiao.lighteff.TimerState
 import com.qingxiao.lighteff.data.TimerMode
 import kotlin.math.max
@@ -43,10 +56,37 @@ import kotlin.math.max
  * 只留剩余时间和一个紧急退出。返回键在这里被拦截，必须点按钮才能离开。
  */
 @Composable
-fun FocusLockScreen(timer: TimerState, onEmergencyExit: () -> Unit) {
+fun FocusLockScreen(
+    timer: TimerState,
+    onEmergencyExit: () -> Unit,
+    onWhitelistChanged: () -> Unit = {},
+    onEnableGuard: () -> Unit = {}
+) {
     val context = LocalContext.current
     val view = LocalView.current
     val colors = MaterialTheme.colorScheme
+    var showWhitelist by remember { mutableStateOf(false) }
+    var whitelistCount by remember { mutableIntStateOf(FocusGuard.whitelist(context).size) }
+    var guardOn by remember {
+        mutableStateOf(FocusGuard.isEnabled(context) && FocusGuard.permissionsReady(context))
+    }
+    var hasUsage by remember { mutableStateOf(FocusGuard.hasUsageAccess(context)) }
+    var hasOverlay by remember { mutableStateOf(FocusGuard.canDrawOverlay(context)) }
+    var showPermission by remember { mutableStateOf(false) }
+
+    // 从系统设置授权返回后刷新状态
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                guardOn = FocusGuard.isEnabled(context) && FocusGuard.permissionsReady(context)
+                hasUsage = FocusGuard.hasUsageAccess(context)
+                hasOverlay = FocusGuard.canDrawOverlay(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     // 盖住系统栏，变成真正的全屏；退出时恢复
     DisposableEffect(Unit) {
@@ -119,6 +159,34 @@ fun FocusLockScreen(timer: TimerState, onEmergencyExit: () -> Unit) {
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            if (guardOn) {
+                Text(
+                    text = "学霸模式已开启 · 白名单外的 App 会被挡住",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.primary,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(4.dp))
+            } else {
+                TextButton(onClick = { showPermission = true }) {
+                    Text(
+                        text = "开启学霸模式，离开这里也挡住其他 App",
+                        color = colors.primary
+                    )
+                }
+            }
+            TextButton(
+                onClick = {
+                    whitelistCount = FocusGuard.whitelist(context).size
+                    showWhitelist = true
+                }
+            ) {
+                Text(
+                    text = "白名单 · $whitelistCount 个应用",
+                    color = colors.primary
+                )
+            }
+            Spacer(Modifier.height(2.dp))
             OutlinedButton(
                 onClick = onEmergencyExit,
                 shape = RoundedCornerShape(14.dp),
@@ -134,6 +202,47 @@ fun FocusLockScreen(timer: TimerState, onEmergencyExit: () -> Unit) {
                 textAlign = TextAlign.Center
             )
         }
+    }
+
+    if (showWhitelist) {
+        WhitelistDialog(
+            selected = FocusGuard.whitelist(context),
+            onDismiss = { showWhitelist = false },
+            onConfirm = { packages ->
+                FocusGuard.setWhitelist(context, packages)
+                whitelistCount = packages.size
+                onWhitelistChanged()
+                showWhitelist = false
+            }
+        )
+    }
+
+    if (showPermission) {
+        FocusGuardPermissionDialog(
+            hasUsage = hasUsage,
+            hasOverlay = hasOverlay,
+            onRequestUsage = {
+                runCatching { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+            },
+            onRequestOverlay = {
+                runCatching {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
+                }
+            },
+            onDismiss = { showPermission = false },
+            onEnable = {
+                onEnableGuard()
+                FocusGuard.sync(context, timer.running)
+                guardOn = true
+                onWhitelistChanged()
+                showPermission = false
+            }
+        )
     }
 }
 

@@ -5,7 +5,9 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -70,6 +72,39 @@ object FocusGuard {
 
     fun permissionsReady(context: Context): Boolean =
         hasUsageAccess(context) && canDrawOverlay(context)
+
+    /**
+     * 小米/红米的后台保活设置页。国行 ROM 会把后台进程整个冻结，
+     * 哪怕有前台服务也一样，只能让用户在这里把「省电策略」改成无限制。
+     */
+    fun openBackgroundSettings(context: Context): Boolean {
+        val candidates = listOf(
+            Intent("miui.intent.action.APP_PERM_EDITOR")
+                .putExtra("extra_pkgname", context.packageName),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.parse("package:${context.packageName}"))
+        )
+        return candidates.any { intent ->
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            runCatching { context.startActivity(intent) }.isSuccess
+        }
+    }
+
+    /** 申请忽略电池优化，国际版/原生系统上直接解除后台限制 */
+    fun requestIgnoreBatteryOptimizations(context: Context): Boolean {
+        val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (runCatching { power.isIgnoringBatteryOptimizations(context.packageName) }
+                .getOrDefault(false)) {
+            return false
+        }
+        val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+            .setData(Uri.parse("package:${context.packageName}"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (runCatching { context.startActivity(request) }.isSuccess) return true
+        val list = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return runCatching { context.startActivity(list) }.isSuccess
+    }
 
     /** 计时状态或开关变化时调用，决定屏蔽服务的启停 */
     fun sync(context: Context, timerRunning: Boolean) {

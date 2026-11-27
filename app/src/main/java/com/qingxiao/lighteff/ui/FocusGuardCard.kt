@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
 
 /** 计时页的「学霸模式」卡片：开关 + 白名单入口 + 权限引导 */
 @Composable
-fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
+fun FocusGuardCard(refreshKey: Int = 0, onEnabledChange: (Boolean) -> Unit = {}) {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(FocusGuard.isEnabled(context)) }
     var whitelistCount by remember { mutableIntStateOf(FocusGuard.whitelist(context).size) }
@@ -55,6 +55,14 @@ fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
     var hasOverlay by remember { mutableStateOf(FocusGuard.canDrawOverlay(context)) }
     var showPermission by remember { mutableStateOf(false) }
     var showWhitelist by remember { mutableStateOf(false) }
+
+    // 在开始计时的弹窗或全屏专注页改过白名单/开关后，这里要跟着刷新
+    LaunchedEffect(refreshKey) {
+        whitelistCount = FocusGuard.whitelist(context).size
+        enabled = FocusGuard.isEnabled(context)
+        hasUsage = FocusGuard.hasUsageAccess(context)
+        hasOverlay = FocusGuard.canDrawOverlay(context)
+    }
 
     // 从系统设置授权返回后刷新状态
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -116,7 +124,26 @@ fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
                     modifier = Modifier.weight(1f)
                 )
                 Text(
-                    text = "$whitelistCount 个应用",
+                    text = "$whitelistCount 个应用 ›",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { FocusGuard.openBackgroundSettings(context) }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "后台保活（小米/红米）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = "去设置 ›",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -125,58 +152,27 @@ fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
     }
 
     if (showPermission) {
-        AlertDialog(
-            onDismissRequest = { showPermission = false },
-            title = { Text("还差两个权限") },
-            text = {
-                Column {
-                    Text(
-                        text = "开启后会挡住白名单以外的 App，需要下面两个系统权限：",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    PermissionRow(
-                        title = "使用情况访问",
-                        subtitle = "用来判断当前打开的是哪个 App",
-                        granted = hasUsage
-                    ) {
-                        runCatching { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    PermissionRow(
-                        title = "悬浮窗",
-                        subtitle = "用来把违规的 App 盖住",
-                        granted = hasOverlay
-                    ) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                )
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = "小米/红米手机若开了屏蔽却不生效，还要在系统设置里允许轻效「后台弹出界面」。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+        FocusGuardPermissionDialog(
+            hasUsage = hasUsage,
+            hasOverlay = hasOverlay,
+            onRequestUsage = {
+                runCatching { context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+            },
+            onRequestOverlay = {
+                runCatching {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:${context.packageName}")
+                        )
                     )
                 }
             },
-            confirmButton = {
-                TextButton(
-                    enabled = hasUsage && hasOverlay,
-                    onClick = {
-                        enabled = true
-                        onEnabledChange(true)
-                        showPermission = false
-                    }
-                ) { Text("开启") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPermission = false }) { Text("取消") }
+            onDismiss = { showPermission = false },
+            onEnable = {
+                enabled = true
+                onEnabledChange(true)
+                showPermission = false
             }
         )
     }
@@ -192,6 +188,69 @@ fun FocusGuardCard(onEnabledChange: (Boolean) -> Unit = {}) {
             }
         )
     }
+}
+
+@Composable
+internal fun FocusGuardPermissionDialog(
+    hasUsage: Boolean,
+    hasOverlay: Boolean,
+    onRequestUsage: () -> Unit,
+    onRequestOverlay: () -> Unit,
+    onDismiss: () -> Unit,
+    onEnable: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("还差两个权限") },
+        text = {
+            Column {
+                Text(
+                    text = "开启后会挡住白名单以外的 App，需要下面两个系统权限：",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                PermissionRow(
+                    title = "使用情况访问",
+                    subtitle = "用来判断当前打开的是哪个 App",
+                    granted = hasUsage,
+                    onRequest = onRequestUsage
+                )
+                Spacer(Modifier.height(8.dp))
+                PermissionRow(
+                    title = "悬浮窗",
+                    subtitle = "用来把违规的 App 盖住",
+                    granted = hasOverlay,
+                    onRequest = onRequestOverlay
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "小米/红米还要允许「自启动」「后台弹出界面」，省电策略设为无限制，否则系统会冻结轻效，遮罩弹不出来。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(
+                        onClick = {
+                            if (!FocusGuard.requestIgnoreBatteryOptimizations(context)) {
+                                FocusGuard.openBackgroundSettings(context)
+                            }
+                        }
+                    ) { Text("去设置") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = hasUsage && hasOverlay,
+                onClick = onEnable
+            ) { Text("开启") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Composable
@@ -224,7 +283,7 @@ private fun PermissionRow(
 }
 
 @Composable
-private fun WhitelistDialog(
+internal fun WhitelistDialog(
     selected: Set<String>,
     onDismiss: () -> Unit,
     onConfirm: (Set<String>) -> Unit

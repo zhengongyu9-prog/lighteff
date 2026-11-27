@@ -82,6 +82,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qingxiao.lighteff.AppViewModel
+import com.qingxiao.lighteff.FocusGuard
 import com.qingxiao.lighteff.R
 import com.qingxiao.lighteff.TimerState
 import com.qingxiao.lighteff.data.TaskItem
@@ -97,6 +98,8 @@ fun TimerScreen(viewModel: AppViewModel) {
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var showPicker by rememberSaveable { mutableStateOf(false) }
+    var showWhitelist by remember { mutableStateOf(false) }
+    val whitelistVersion by viewModel.whitelistVersion.collectAsStateWithLifecycle()
     var pendingMode by remember { mutableStateOf<TimerMode?>(null) }
     var seenTick by rememberSaveable { mutableLongStateOf(timer.completionTick) }
 
@@ -158,6 +161,7 @@ fun TimerScreen(viewModel: AppViewModel) {
         },
         notifyDenied = notifyDenied,
         onGuardChange = viewModel::setFocusGuardEnabled,
+        whitelistVersion = whitelistVersion,
         onOpenNotifySettings = {
             runCatching {
                 context.startActivity(
@@ -171,10 +175,24 @@ fun TimerScreen(viewModel: AppViewModel) {
     if (showPicker) {
         FocusPickerDialog(
             tasks = appState.tasks.filter { !it.done },
+            whitelistCount = FocusGuard.whitelist(context).size,
+            onOpenWhitelist = { showWhitelist = true },
             onDismiss = { showPicker = false },
             onConfirm = { label, taskId ->
                 showPicker = false
                 viewModel.startWithLabel(label, taskId)
+            }
+        )
+    }
+
+    if (showWhitelist) {
+        WhitelistDialog(
+            selected = FocusGuard.whitelist(context),
+            onDismiss = { showWhitelist = false },
+            onConfirm = { packages ->
+                FocusGuard.setWhitelist(context, packages)
+                viewModel.notifyWhitelistChanged()
+                showWhitelist = false
             }
         )
     }
@@ -203,6 +221,8 @@ fun TimerScreen(viewModel: AppViewModel) {
 @Composable
 private fun FocusPickerDialog(
     tasks: List<TaskItem>,
+    whitelistCount: Int,
+    onOpenWhitelist: () -> Unit,
     onDismiss: () -> Unit,
     onConfirm: (String, String?) -> Unit
 ) {
@@ -258,6 +278,29 @@ private fun FocusPickerDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                // 开始前就能直接设置白名单，不用去下面的卡片里找
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f))
+                        .clickable(onClick = onOpenWhitelist)
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "学霸模式白名单",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (whitelistCount == 0) "未选择，点此设置" else "$whitelistCount 个应用 ›",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         },
         confirmButton = {
@@ -315,7 +358,8 @@ fun TimerContent(
     onFinish: () -> Unit,
     notifyDenied: Boolean = false,
     onOpenNotifySettings: () -> Unit = {},
-    onGuardChange: (Boolean) -> Unit = {}
+    onGuardChange: (Boolean) -> Unit = {},
+    whitelistVersion: Int = 0
 ) {
     val targetMillis = timer.targetMinutes * 60_000L
     val overtimeMillis = (timer.elapsedMillis - targetMillis).coerceAtLeast(0L)
@@ -375,7 +419,7 @@ fun TimerContent(
             onReset = onReset,
             onFinish = onFinish
         )
-        FocusGuardCard(onEnabledChange = onGuardChange)
+        FocusGuardCard(refreshKey = whitelistVersion, onEnabledChange = onGuardChange)
         if (notifyDenied) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),

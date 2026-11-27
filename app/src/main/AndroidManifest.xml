@@ -12,6 +12,8 @@
         tools:ignore="ProtectedPermissions" />
     <!-- 学霸模式：白名单外的应用用悬浮窗盖住 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 学霸模式：申请忽略电池优化，避免后台进程被系统冻结 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <queries>
         <intent>

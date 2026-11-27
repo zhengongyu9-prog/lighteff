@@ -192,7 +192,12 @@ private fun LightEffApp(
 
             // 计时期间的全屏专注页，盖住底部标签和系统栏
             if (focusLock && timer.running) {
-                FocusLockScreen(timer = timer, onEmergencyExit = vm::dismissFocusLock)
+                FocusLockScreen(
+                    timer = timer,
+                    onEmergencyExit = vm::dismissFocusLock,
+                    onWhitelistChanged = vm::notifyWhitelistChanged,
+                    onEnableGuard = { vm.setFocusGuardEnabled(true) }
+                )
             }
 
             // 计时结束后的完成确认：不管当前停在哪个标签页都要弹出来
