@@ -156,7 +156,7 @@ fun TimerScreen(viewModel: AppViewModel) {
         },
         onReset = viewModel::resetTimer,
         onFinish = {
-            viewModel.finishStopwatch()
+            viewModel.finishTimer()
             Toast.makeText(context, "本次专注已记录", Toast.LENGTH_SHORT).show()
         },
         notifyDenied = notifyDenied,
@@ -442,7 +442,7 @@ fun TimerContent(
         }
         Text(
             text = if (timer.mode == TimerMode.Countdown) {
-                "倒计时结束会自动记录一次专注，可在「统计」里查看"
+                "倒计时结束会自动记录一次专注；提前点「结束」也会记下实际专注的时长"
             } else {
                 "点「完成并记录」保存本次正计时，重置不会记录"
             },
@@ -693,15 +693,15 @@ private fun ControlButtons(
                 modifier = Modifier.weight(1f),
                 enabled = timer.elapsedMillis > 0L || timer.running,
                 shape = RoundedCornerShape(16.dp),
-                contentPadding = PaddingValues(vertical = 14.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 14.dp)
             ) {
                 Text("重置")
             }
             Button(
                 onClick = onToggle,
-                modifier = Modifier.weight(1.5f),
+                modifier = Modifier.weight(1.4f),
                 shape = RoundedCornerShape(16.dp),
-                contentPadding = PaddingValues(vertical = 14.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 14.dp)
             ) {
                 Icon(
                     painter = painterResource(if (timer.running) R.drawable.ic_pause else R.drawable.ic_play),
@@ -710,6 +710,18 @@ private fun ControlButtons(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(if (timer.running) "暂停" else "开始")
+            }
+            // 倒计时也要能主动收尾：结束这一轮并问任务完成没有
+            if (timer.mode == TimerMode.Countdown) {
+                OutlinedButton(
+                    onClick = onFinish,
+                    modifier = Modifier.weight(1.1f),
+                    enabled = timer.elapsedMillis > 0L,
+                    shape = RoundedCornerShape(16.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 14.dp)
+                ) {
+                    Text("结束")
+                }
             }
         }
         if (timer.mode == TimerMode.Stopwatch) {

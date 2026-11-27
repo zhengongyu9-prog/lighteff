@@ -345,18 +345,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         syncTimerService()
     }
 
-    /** 正计时：结束并保存本次记录 */
-    fun finishStopwatch() {
+    /** 结束这次计时并保存，然后问「任务是否完成」。倒计时、正计时都走这里 */
+    fun finishTimer() {
         val current = _timer.value
-        if (current.mode != TimerMode.Stopwatch) return
         val seconds = (current.elapsedMillis / 1000).toInt()
         if (seconds <= 0) return
         val prompt = TimerTaskPrompt(current.mode, current.label, current.taskId)
+        when {
+            // 正计时：整段都还没入账
+            current.mode == TimerMode.Stopwatch ->
+                recordSession(TimerMode.Stopwatch, seconds, current.label)
+            // 倒计时到点的部分在到点时就记过，这里只补还没入账的超时
+            current.completed -> flushOvertime()
+            // 倒计时没走完就结束：按正计时记下实际专注的时长，不伪装成完成的倒计时
+            else -> recordSession(TimerMode.Stopwatch, seconds, current.label)
+        }
         stopTicker()
         accumulatedMillis = 0L
-        _timer.update { it.copy(elapsedMillis = 0L, running = false, label = "", taskId = null) }
+        _timer.update {
+            it.copy(
+                elapsedMillis = 0L,
+                running = false,
+                completed = false,
+                recordedOvertimeMillis = 0L,
+                label = "",
+                taskId = null
+            )
+        }
         _focusLock.value = false
-        recordSession(TimerMode.Stopwatch, seconds, current.label)
         persistTimer()
         syncTimerService()
         // 记录完再问这次任务是否完成，方便同步待办
@@ -604,6 +620,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                         saved.label,
                         finishedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
                     )
+                    // 进程不在的时候倒计时已经走完，回来照样问一次任务完成没有
+                    _taskPrompt.value =
+                        TimerTaskPrompt(TimerMode.Countdown, saved.label, saved.taskId)
                 }
                 resumeTicker()
             }

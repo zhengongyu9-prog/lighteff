@@ -230,7 +230,7 @@ private fun TimerTaskDoneDialog(
             Column {
                 Text(
                     text = if (prompt.mode == TimerMode.Countdown) {
-                        "倒计时部分已记入统计，超时时间还会继续累计。"
+                        "这次倒计时已结束，专注时长已记入统计。"
                     } else {
                         "本次计时已记入统计。"
                     },
