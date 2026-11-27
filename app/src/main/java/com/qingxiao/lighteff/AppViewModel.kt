@@ -296,11 +296,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         if (_timer.value.running) pauseTimer() else startTimer()
     }
 
-    /** 紧急退出全屏专注页：只关闭全屏，计时继续在后台跑 */
-    fun dismissFocusLock() {
-        _focusLock.value = false
-    }
-
     /** 选好「这次专注做什么」之后开始计时 */
     fun startWithLabel(label: String, taskId: String? = null) {
         if (_timer.value.running) return

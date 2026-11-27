@@ -194,7 +194,6 @@ private fun LightEffApp(
             if (focusLock && timer.running) {
                 FocusLockScreen(
                     timer = timer,
-                    onEmergencyExit = vm::dismissFocusLock,
                     onPause = vm::toggleTimer,
                     onFinish = vm::finishTimer,
                     onWhitelistChanged = vm::notifyWhitelistChanged,

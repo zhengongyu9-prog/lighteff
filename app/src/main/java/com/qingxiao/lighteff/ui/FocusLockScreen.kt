@@ -60,12 +60,11 @@ import kotlin.math.max
 
 /**
  * 全屏专注页：点开始后盖住整个界面（含状态栏、导航栏、底部标签），
- * 只留剩余时间和暂停、结束、紧急退出。返回键在这里被拦截，必须点按钮才能离开。
+ * 只留剩余时间和暂停、结束。返回键在这里被拦截，必须点按钮才能离开。
  */
 @Composable
 fun FocusLockScreen(
     timer: TimerState,
-    onEmergencyExit: () -> Unit,
     onPause: () -> Unit = {},
     onFinish: () -> Unit = {},
     onWhitelistChanged: () -> Unit = {},
@@ -228,13 +227,6 @@ fun FocusLockScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("结束")
                 }
-            }
-            TextButton(onClick = onEmergencyExit) {
-                Text(
-                    text = "紧急退出（计时继续）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant
-                )
             }
         }
     }
