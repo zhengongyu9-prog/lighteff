@@ -164,7 +164,9 @@ fun FocusLockScreen(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                // 往上抬一点，整块控件不至于贴在屏幕最底下
+                .padding(bottom = 56.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (guardOn) {
