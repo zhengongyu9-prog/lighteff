@@ -123,6 +123,8 @@ private fun LightEffApp(
                 // 回到前台时补传上次没同步成功的改动
                 Lifecycle.Event.ON_START -> {
                     FocusGuard.appVisible = true
+                    // 遮罩上点了「回到专注」，直接回到全屏倒计时页
+                    if (FocusGuard.consumeFocusScreenRequest()) vm.showFocusLock()
                     vm.retryPendingCloudUpload()
                 }
                 else -> Unit

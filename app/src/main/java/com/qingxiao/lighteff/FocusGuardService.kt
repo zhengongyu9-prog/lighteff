@@ -230,6 +230,8 @@ class FocusGuardService : Service() {
             // 切回自己时先让出 2.5 秒，避免轮询又把遮罩加回来
             pausedUntil = System.currentTimeMillis() + 2_500L
             hideOverlay()
+            // 告诉主界面回来要直接显示全屏专注页，而不是停在计时列表
+            FocusGuard.requestFocusScreen()
             runCatching {
                 startActivity(
                     Intent(this, MainActivity::class.java).addFlags(

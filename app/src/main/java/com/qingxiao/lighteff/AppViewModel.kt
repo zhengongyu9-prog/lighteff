@@ -399,6 +399,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _taskPrompt.value = null
     }
 
+    /** 遮罩上点了「回到专注」：重新打开全屏专注页 */
+    fun showFocusLock() {
+        if (_timer.value.running) _focusLock.value = true
+    }
+
     private fun startTimer() {
         val current = _timer.value
         if (current.mode == TimerMode.Countdown) {

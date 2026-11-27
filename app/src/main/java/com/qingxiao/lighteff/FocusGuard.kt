@@ -30,6 +30,20 @@ object FocusGuard {
     @Volatile
     var appVisible: Boolean = false
 
+    /** 遮罩上点了「回到专注」：主界面下次回到前台时重新打开全屏专注页 */
+    @Volatile
+    private var focusScreenRequested: Boolean = false
+
+    fun requestFocusScreen() {
+        focusScreenRequested = true
+    }
+
+    fun consumeFocusScreenRequest(): Boolean {
+        val requested = focusScreenRequested
+        focusScreenRequested = false
+        return requested
+    }
+
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) {
