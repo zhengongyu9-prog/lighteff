@@ -34,6 +34,8 @@ class FocusGuardService : Service() {
     private lateinit var windowManager: WindowManager
     private var overlay: View? = null
     private var blockedPackage: String? = null
+    /** 点了「本次不屏蔽」临时放行的包，一旦离开这个 App 就恢复拦截 */
+    private var skippedPackage: String? = null
     /** 1 像素的常驻小窗，让系统始终认为本应用有可见窗口，避免后台被冻结 */
     private var keepAlive: View? = null
     /** 系统级永远放行的包，白名单在每次轮询时叠加，改完立即生效 */
@@ -112,6 +114,7 @@ class FocusGuardService : Service() {
         }
         // 自己在前台时一定不挡：使用情况统计有延迟，靠包名判断可能误盖自己
         if (FocusGuard.appVisible) {
+            skippedPackage = null
             hideOverlay()
             return
         }
@@ -136,7 +139,9 @@ class FocusGuardService : Service() {
         if (pkg == null) return
         // 白名单每次重新读，用户在计时过程中勾选/取消立刻生效
         val allowed = systemAllowed + FocusGuard.whitelist(this)
-        if (pkg in allowed) hideOverlay() else showOverlay(pkg)
+        // 「本次不屏蔽」只作用于当前这个 App，切走再回来就重新拦
+        if (skippedPackage != null && pkg != skippedPackage) skippedPackage = null
+        if (pkg == skippedPackage) hideOverlay() else if (pkg in allowed) hideOverlay() else showOverlay(pkg)
     }
 
     private fun isScreenOn(): Boolean =
@@ -236,10 +241,9 @@ class FocusGuardService : Service() {
             }
         }
         view.findViewById<View>(R.id.overlay_disable).setOnClickListener {
-            // 只关掉本次屏蔽，计时继续
-            FocusGuard.setEnabled(this, false)
+            // 只放行眼前这一次：学霸模式保持开启，切走再回来照样拦
+            skippedPackage = blockedPackage
             hideOverlay()
-            stopSelf()
         }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
