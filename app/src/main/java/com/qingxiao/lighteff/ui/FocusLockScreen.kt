@@ -12,13 +12,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -34,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,18 +53,21 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.qingxiao.lighteff.FocusGuard
+import com.qingxiao.lighteff.R
 import com.qingxiao.lighteff.TimerState
 import com.qingxiao.lighteff.data.TimerMode
 import kotlin.math.max
 
 /**
  * 全屏专注页：点开始后盖住整个界面（含状态栏、导航栏、底部标签），
- * 只留剩余时间和一个紧急退出。返回键在这里被拦截，必须点按钮才能离开。
+ * 只留剩余时间和暂停、结束、紧急退出。返回键在这里被拦截，必须点按钮才能离开。
  */
 @Composable
 fun FocusLockScreen(
     timer: TimerState,
     onEmergencyExit: () -> Unit,
+    onPause: () -> Unit = {},
+    onFinish: () -> Unit = {},
     onWhitelistChanged: () -> Unit = {},
     onEnableGuard: () -> Unit = {}
 ) {
@@ -186,21 +195,47 @@ fun FocusLockScreen(
                     color = colors.primary
                 )
             }
-            Spacer(Modifier.height(2.dp))
-            OutlinedButton(
-                onClick = onEmergencyExit,
-                shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 28.dp, vertical = 10.dp)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("紧急退出", color = colors.onSurfaceVariant)
+                OutlinedButton(
+                    onClick = onPause,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_pause),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("暂停")
+                }
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_check),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("结束")
+                }
             }
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = "退出后计时继续，通知栏仍会显示倒计时",
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.outline,
-                textAlign = TextAlign.Center
-            )
+            TextButton(onClick = onEmergencyExit) {
+                Text(
+                    text = "紧急退出（计时继续）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant
+                )
+            }
         }
     }
 
